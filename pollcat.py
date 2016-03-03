@@ -27,7 +27,7 @@ def getICAT():
 
 
 def updateDownloadRequest(preparedId, downloadid):
-    logger.info("Request " + preparedId + " finished, marking as complete")
+    logger.info("Request %s finished, marking as complete" % preparedId)
     requests.put(
         url=config.get('main', 'TOPCAT_URL') + '/api/v1/admin/download/' + str(downloadid) + '/status',
         params={
@@ -39,7 +39,7 @@ def updateDownloadRequest(preparedId, downloadid):
 
 
 def createuser(username):
-    logger.debug("Attempting to create user: " + username)
+    logger.debug("Attempting to create user: %s" % username)
     params = (
         re.sub(r'[^a-zA-Z0-9=]', '', username), # make username safe
         config.get('main', 'DESTINATION'),
@@ -56,14 +56,14 @@ def copydata(username, downloadname, dfids):
     DESTINATION = config.get('main', 'DESTINATION')
 
     if os.path.exists(DESTINATION + '/' + username + '/' + downloadname):
-        logger.warn("Download name already exists. Changing to " + downloadname + "_2")
+        logger.warn("Download name already exists. Changing to %s_2" % downloadname)
         downloadname = downloadname + "_2"
 
     for ids in chunks(dfids, int(config.get('main', 'LOCATION_CHUNKS'))):
         query = 'SELECT df.location FROM Datafile df WHERE df.id IN (%s)' % ids
         for dflocation in getICAT().search(query):
-            source = SOURCE + '/' + dflocation
-            destination = DESTINATION + '/' + username + '/' + downloadname + '/' + dflocation
+            source = "%s/%s" % (SOURCE, dflocation)
+            destination = "%s/%s/%s/%s" % (DESTINATION, username, downloadname, dflocation)
 
             destination_dir = os.path.dirname(destination)
             if not os.path.isdir(destination_dir):
@@ -98,7 +98,7 @@ def checkstatus(preparedId, dfids):
 
 
 def getDatafileIds(preparedId):
-    logger.debug("Retrieving datafileIds from the IDS for " + preparedId)
+    logger.debug("Retrieving datafileIds for %s" % preparedId)
     response = requests.get(
         url=config.get('main', 'IDS_URL') + '/ids/getDatafileIds',
         timeout=int(config.get('main', 'DATAFILEIDS_TIMEOUT')),
@@ -120,24 +120,23 @@ def getDownloadRequests():
         }
     )
     downloadrequests = json.loads(response.text)
-    logger.debug("Found " + str(len(downloadrequests)) + " pending requests")
+    logger.debug("Found %s pending requests" % str(len(downloadrequests)))
     return downloadrequests
 
 
 def mainloop():
     for request in getDownloadRequests():
         dfids = getDatafileIds(request['preparedId'])
-
         if checkstatus(request['preparedId'], dfids):
             try:
                 createuser(request['userName'])
                 copydata(request['userName'], request['fileName'], dfids)
                 updateDownloadRequest(request['preparedId'], request['id'])
             except Exception, e:
-                logger.error("Request failed: " + request['preparedId'], exc_info=True)
+                logger.error("Request failed: %s" % request['preparedId'], exc_info=True)
                 continue
         else:
-            logger.info("Request " + request['preparedId'] + " _IS_NOT_ ready")
+            logger.info("Request %s _IS_NOT_ ready" % request['preparedId'])
             continue
 
 

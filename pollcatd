@@ -1,0 +1,44 @@
+#!/bin/bash
+
+POLLCAT_HOME=`pwd`
+
+if [ "$(pgrep -u root -f 'python pollcat.py')" ] ; then
+  pollcatPid=$(pgrep -u root -f 'python pollcat.py')
+fi
+
+case "$1" in
+
+    status)
+        if [ -n "${pollcatPid}" ]; then
+            echo "POLLCAT is running with process ID ${pollcatPid}"
+            exit 0
+        else
+            echo "POLLCAT is not running"
+            exit 1
+        fi
+        ;;
+
+    start)
+        if [ -n "${pollcatPid}" ] ; then
+            echo "POLLCAT is already running with process ID ${pollcatPid}"
+        else
+            cd $POLLCAT_HOME
+            nohup python pollcat.py >> nohup.out &
+        fi
+        ;;
+
+    stop)
+        cd $POLLCAT_HOME
+        if [ "$(pgrep -u root -f 'python pollcat.py')" ]; then
+            echo "POLLCAT is stopping"
+	    kill $(pgrep -u root -f 'python pollcat.py')
+        else
+            echo "POLLCAT is not running"
+        fi 
+        ;;
+
+    *)
+        echo "Usage: $0 (start|stop|status)"
+        exit 1
+
+esac

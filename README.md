@@ -19,7 +19,7 @@ Requirements:
 Files:
 
 * pollcat.config - Make sure you set all the values in here before starting.
-* pollcat.py     - The script that polld will call.
+* pollcat.py     - The script that pollcatd will call.
 * pollcatd       - Use this file to start, stop and check the status of the
-                   pollCAT script eg. ./pollcatd status
+                   PollCAT script eg. ./pollcatd status
 

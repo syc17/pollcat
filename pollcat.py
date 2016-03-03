@@ -46,7 +46,6 @@ def createuser(username):
         re.sub(r'[^a-zA-Z0-9=]', '', username)
     )
     ret = os.system("useradd %s -d %s/%s" % params)
-
     if ret == 0:
         logger.info("Creating new local user account for: %s" % username)
 
@@ -128,6 +127,7 @@ def mainloop():
     for request in getDownloadRequests():
         dfids = getDatafileIds(request['preparedId'])
         if checkstatus(request['preparedId'], dfids):
+            logger.info("Request %s _IS_ ready" % request['preparedId'])
             try:
                 createuser(request['userName'])
                 copydata(request['userName'], request['fileName'], dfids)

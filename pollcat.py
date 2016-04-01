@@ -1,79 +1,14 @@
-import os
 import time
 import requests
 import json
-import re
-import shutil
-import icat
 import logging
 import logging.config
 import ConfigParser
+import importlib
 
-def chunks(l, n):
-    # Split a list into chunks of comma separated strings of size n
-    return [",".join(str(j) for j in l[i:i + n]) for i in range(0, len(l), n)]
+from common import *
 
-
-def getICAT():
-    try:
-        icatclient.ping()
-    except:
-        icatclient = icat.client.Client(config.get('main', 'ICAT_URL') + "/ICATService/ICAT?wsdl")
-        icatclient.login('db', {
-            'username' : config.get('main', 'ICAT_USER'),
-            'password' : config.get('main', 'ICAT_PASSWD').decode("utf8")
-        })
-    return icatclient
-
-
-def updateDownloadRequest(preparedId, downloadid):
-    logger.info("Request %s finished, marking as complete" % preparedId)
-    requests.put(
-        url=config.get('main', 'TOPCAT_URL') + '/api/v1/admin/download/' + str(downloadid) + '/status',
-        params={
-            'icatUrl'   : config.get('main', 'ICAT_URL'), 
-            'sessionId' : getICAT().sessionId,
-            'value'     : 'COMPLETE'
-        }
-    )
-
-
-def createuser(username):
-    logger.debug("Attempting to create user: %s" % username)
-    params = (
-        re.sub(r'[^a-zA-Z0-9=]', '', username), # make username safe
-        config.get('main', 'DESTINATION'),
-        re.sub(r'[^a-zA-Z0-9=]', '', username)
-    )
-    ret = os.system("useradd %s -d %s/%s" % params)
-    if ret == 0:
-        logger.info("Creating new local user account for: %s" % username)
-
-
-def copydata(username, downloadname, dfids):
-    SOURCE = config.get('main', 'SOURCE')
-    DESTINATION = config.get('main', 'DESTINATION')
-
-    if os.path.exists(DESTINATION + '/' + username + '/' + downloadname):
-        logger.warn("Download name already exists. Changing to %s_2" % downloadname)
-        downloadname = downloadname + "_2"
-
-    for ids in chunks(dfids, int(config.get('main', 'LOCATION_CHUNKS'))):
-        query = 'SELECT df.location FROM Datafile df WHERE df.id IN (%s)' % ids
-        for dflocation in getICAT().search(query):
-            source = "%s/%s" % (SOURCE, dflocation)
-            destination = "%s/%s/%s/%s" % (DESTINATION, username, downloadname, dflocation)
-
-            destination_dir = os.path.dirname(destination)
-            if not os.path.isdir(destination_dir):
-                logger.debug("Creating directory %s" % destination_dir)
-                os.makedirs(destination_dir)
-        
-            logger.debug("Copying file %s -> %s" % (source, destination))
-            shutil.copy(source, destination)
-
-
-def checkstatus(preparedId, dfids):
+def checkDatafileStatus(preparedId, dfids):
     """
     Check each datafile to see if ONLINE
     Break out on first occurance of non restored file
@@ -97,6 +32,9 @@ def checkstatus(preparedId, dfids):
 
 
 def getDatafileIds(preparedId):
+    """
+    Get a list of all datafile ids associated with the preparedId
+    """
     logger.debug("Retrieving datafileIds for %s" % preparedId)
     response = requests.get(
         url=config.get('main', 'IDS_URL') + '/ids/getDatafileIds',
@@ -106,16 +44,29 @@ def getDatafileIds(preparedId):
     return json.loads(response.text)['ids']
 
 
+def updateDownloadRequest(preparedId, downloadid):
+    logger.info("Request %s finished, marking as complete" % preparedId)
+    r = requests.put(
+        url=config.get('main', 'TOPCAT_URL') + 'api/v1/admin/download/' + str(downloadid) + '/status',
+        params={
+            'icatUrl'   : config.get('main', 'ICAT_URL'), 
+            'sessionId' : getICAT(config).sessionId,
+            'value'     : 'COMPLETE'
+        },
+        headers={"Content-type": "application/x-www-form-urlencoded; charset=UTF-8"}
+    )
+
+
 def getDownloadRequests():
     logger.debug("Retrieving Globus download requests from TopCAT")
     response = requests.get(
         url=config.get('main', 'TOPCAT_URL') + '/api/v1/admin/downloads',
         params={
             'icatUrl'     : config.get('main', 'ICAT_URL'), 
-            'sessionId'   : getICAT().sessionId,
+            'sessionId'   : getICAT(config).sessionId,
             'queryOffset' : "where download.transport = 'globus' and " + 
-                            "download.isDeleted = false and download.status != " +
-                            "org.icatproject.topcat.domain.DownloadStatus.COMPLETE"
+                            "download.isDeleted = false and download.status = " +
+                            "org.icatproject.topcat.domain.DownloadStatus.RESTORING"
         }
     )
     downloadrequests = json.loads(response.text)
@@ -125,16 +76,25 @@ def getDownloadRequests():
 
 def mainloop():
     for request in getDownloadRequests():
-        dfids = getDatafileIds(request['preparedId'])
-        if checkstatus(request['preparedId'], dfids):
+        datafileIds = getDatafileIds(request['preparedId'])
+        if checkDatafileStatus(request['preparedId'], datafileIds):
             logger.info("Request %s _IS_ ready" % request['preparedId'])
             try:
-                createuser(request['userName'])
-                copydata(request['userName'], request['fileName'], dfids)
-                updateDownloadRequest(request['preparedId'], request['id'])
+                # import plugin class and execute the run method
+                module = importlib.import_module(
+                    "plugins." + 
+                    config.get('main', 'PLUGIN_NAME') + "." +
+                    config.get('main', 'PLUGIN_NAME')
+                )
+                plugin_class = getattr(module, 'Plugin')
+                logger.debug("Initilising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
+                plugin = plugin_class(request, datafileIds, config, logger)
+                logger.debug("Running plugin")
+                plugin.run()
             except Exception, e:
-                logger.error("Request failed: %s" % request['preparedId'], exc_info=True)
+                logger.error("%s plugin failed" % config.get('main', 'PLUGIN_NAME'), exc_info=True)
                 continue
+            updateDownloadRequest(request['preparedId'], request['id'])
         else:
             logger.info("Request %s _IS_NOT_ ready" % request['preparedId'])
             continue
@@ -146,8 +106,6 @@ if __name__ == "__main__":
 
     logging.config.fileConfig('logging.ini')
     logger = logging.getLogger('root')
-
-    icatclient = None
 
     while True:
         try:

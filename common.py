@@ -1,13 +1,26 @@
 import icat
 
 def chunks(l, n):
-    # Split a list into chunks of comma separated strings of size n
+    """
+    Split a list of integers into a list of comma separated strings which
+    are grouped into chunks of size n.
+
+    chunks([1,2,3,4,5,6,7,8,9], 3) -> ["1,2,3", "4,5,6", "7,8,9"] 
+
+    Parameters:
+        l - a list of integers
+        n - the chunk size
+    """
     return [",".join(str(j) for j in l[i:i + n]) for i in range(0, len(l), n)]
 
 
 def getICAT(config):
     """
-    Check the status of 
+    Check if ICAT session still valid and then return an ICAT client object  
+
+    Parameters:
+        config - a config parser object containing connection information for
+                 ICAT
     """
     try:
         icatclient.refresh()

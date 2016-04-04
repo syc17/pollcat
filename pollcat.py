@@ -8,13 +8,17 @@ import importlib
 
 from common import *
 
-def checkDatafileStatus(preparedId, dfids):
+def checkDatafileStatus(preparedId, datafileIds):
     """
     Check each datafile to see if ONLINE
     Break out on first occurance of non restored file
+
+    Parameters:
+        preparedId - an IDS prepared ID (in UUID format)
+        datafileIds - a list of integers
     """
     isready = True
-    for ids in chunks(dfids, int(config.get('main', 'STATUS_CHUNKS'))):
+    for ids in chunks(datafileIds, int(config.get('main', 'STATUS_CHUNKS'))):
         response = requests.get(
             url=config.get('main', 'IDS_URL') + '/ids/getStatus',
             params={'datafileIds' : ids},
@@ -27,13 +31,15 @@ def checkDatafileStatus(preparedId, dfids):
         if response.text != "ONLINE":
             isready = False
             break
-
     return isready
 
 
 def getDatafileIds(preparedId):
     """
     Get a list of all datafile ids associated with the preparedId
+
+    Parameters:
+        preparedId - an IDS prepared ID (in UUID format)
     """
     logger.debug("Retrieving datafileIds for %s" % preparedId)
     response = requests.get(
@@ -44,10 +50,19 @@ def getDatafileIds(preparedId):
     return json.loads(response.text)['ids']
 
 
-def updateDownloadRequest(preparedId, downloadid):
+def updateDownloadRequest(preparedId, downloadId):
+    """
+    Once all files have been dealt with by the plugin, notifiy TopCAT
+    that the request is complete
+
+    Parameters:
+        preparedId - an IDS prepared ID (in UUID format)
+        downloadId - the ID associated with the TopCAT download request 
+
+    """
     logger.info("Request %s finished, marking as complete" % preparedId)
     r = requests.put(
-        url=config.get('main', 'TOPCAT_URL') + 'api/v1/admin/download/' + str(downloadid) + '/status',
+        url=config.get('main', 'TOPCAT_URL') + 'api/v1/admin/download/' + str(downloadId) + '/status',
         params={
             'icatUrl'   : config.get('main', 'ICAT_URL'), 
             'sessionId' : getICAT(config).sessionId,
@@ -58,14 +73,18 @@ def updateDownloadRequest(preparedId, downloadid):
 
 
 def getDownloadRequests():
+    """
+    Get a list from TopCAT of all non-complete download requests that
+    match the plugin name
+    """
     logger.debug("Retrieving Globus download requests from TopCAT")
     response = requests.get(
         url=config.get('main', 'TOPCAT_URL') + '/api/v1/admin/downloads',
         params={
             'icatUrl'     : config.get('main', 'ICAT_URL'), 
             'sessionId'   : getICAT(config).sessionId,
-            'queryOffset' : "where download.transport = 'globus' and " + 
-                            "download.isDeleted = false and download.status = " +
+            'queryOffset' : "where download.transport = '" + config.get('main', 'PLUGIN_NAME') + 
+                            "' and download.isDeleted = false and download.status = " +
                             "org.icatproject.topcat.domain.DownloadStatus.RESTORING"
         }
     )
@@ -89,7 +108,6 @@ def mainloop():
                 plugin_class = getattr(module, 'Plugin')
                 logger.debug("Initilising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
                 plugin = plugin_class(request, datafileIds, config, logger)
-                logger.debug("Running plugin")
                 plugin.run()
             except Exception, e:
                 logger.error("%s plugin failed" % config.get('main', 'PLUGIN_NAME'), exc_info=True)

@@ -16,4 +16,4 @@ class Plugin(object):
 
 
     def run(self):
-        self.debug("run() function for SCARF plugin executed")
+        self.logger.debug("run() function for SCARF plugin executed")

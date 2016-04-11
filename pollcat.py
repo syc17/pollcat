@@ -62,7 +62,7 @@ def updateDownloadRequest(preparedId, downloadId):
     """
     logger.info("Request %s finished, marking as complete" % preparedId)
     r = requests.put(
-        url=config.get('main', 'TOPCAT_URL') + 'api/v1/admin/download/' + str(downloadId) + '/status',
+        url=config.get('main', 'TOPCAT_URL') + '/topcat/admin/download/' + str(downloadId) + '/status',
         params={
             'icatUrl'   : config.get('main', 'ICAT_URL'), 
             'sessionId' : getICAT(config).sessionId,
@@ -79,7 +79,7 @@ def getDownloadRequests():
     """
     logger.debug("Retrieving Globus download requests from TopCAT")
     response = requests.get(
-        url=config.get('main', 'TOPCAT_URL') + '/api/v1/admin/downloads',
+        url=config.get('main', 'TOPCAT_URL') + '/topcat/admin/downloads',
         params={
             'icatUrl'     : config.get('main', 'ICAT_URL'), 
             'sessionId'   : getICAT(config).sessionId,

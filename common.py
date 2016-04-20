@@ -1,5 +1,29 @@
 import icat
 
+
+class IcatClient(object):
+    """
+    Simple wrapper around python-icat that checks to see if session
+    is valid before returning the client. If it has expired, a new
+    session in initiated.
+    """
+
+    def __init__(self, config):
+        self.config = config
+
+    def getInstance(self):
+        try:
+            self.icatclient.refresh()
+        except:
+            url = self.config.get('main', 'ICAT_URL') + "/ICATService/ICAT?wsdl"
+            self.icatclient = icat.client.Client(url)
+            self.icatclient.login('db', {
+                'username' : self.config.get('main', 'ICAT_USER'),
+                'password' : self.config.get('main', 'ICAT_PASSWD').decode("utf8")
+            })
+        return self.icatclient
+
+
 def chunks(l, n):
     """
     Split a list of integers into a list of comma separated strings which
@@ -12,23 +36,3 @@ def chunks(l, n):
         n - the chunk size
     """
     return [",".join(str(j) for j in l[i:i + n]) for i in range(0, len(l), n)]
-
-
-def getICAT(config):
-    """
-    Check if ICAT session still valid and then return an ICAT client object  
-
-    Parameters:
-        config - a config parser object containing connection information for
-                 ICAT
-    """
-    try:
-        icatclient.refresh()
-    except:
-        url = config.get('main', 'ICAT_URL') + "/ICATService/ICAT?wsdl"
-        icatclient = icat.client.Client(url)
-        icatclient.login('db', {
-            'username' : config.get('main', 'ICAT_USER'),
-            'password' : config.get('main', 'ICAT_PASSWD').decode("utf8")
-        })
-    return icatclient

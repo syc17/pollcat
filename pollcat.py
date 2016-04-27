@@ -102,10 +102,10 @@ def mainloop():
                 logger.debug("Initilising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
                 plugin = plugin_class(request, datafileIds, config, logger)
                 plugin.run()
+                updateDownloadRequest(request['preparedId'], request['id'])
             except Exception, e:
                 logger.error("%s plugin failed" % config.get('main', 'PLUGIN_NAME'), exc_info=True)
                 continue
-            updateDownloadRequest(request['preparedId'], request['id'])
         else:
             logger.info("Request %s _IS_NOT_ ready" % request['preparedId'])
             continue

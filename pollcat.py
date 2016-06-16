@@ -106,7 +106,7 @@ def mainloop():
                     config.get('main', 'PLUGIN_NAME')
                 )
                 plugin_class = getattr(module, 'Plugin')
-                logger.debug("Initilising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
+                logger.debug("Initialising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
                 plugin = plugin_class(request, datafileIds, config, logger)
                 plugin.run()
             except Exception, e:

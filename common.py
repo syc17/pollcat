@@ -1,4 +1,5 @@
 import icat
+import icat.client
 
 def chunks(l, n):
     """
@@ -21,9 +22,11 @@ def getICAT(config):
     Parameters:
         config - a config parser object containing connection information for
                  ICAT
-    """
-    try:
+    """    
+   
+    try: 
         icatclient.refresh()
+        
     except:
         url = config.get('main', 'ICAT_URL') + "/ICATService/ICAT?wsdl"
         icatclient = icat.client.Client(url)

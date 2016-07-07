@@ -5,8 +5,8 @@ Created on 11 May 2016
 '''
 
 import ldap
-import ldap.modlist as modlist
-from statsmodels.tsa.arima_process import err1
+import re
+import os.system
 #from plugins import scarf
 
 class ldapProxy(object):
@@ -23,42 +23,79 @@ class ldapProxy(object):
         '''
         self.logger = logger
         self.config = config
-        self.scarfDescs = self.getScarfAttribute('LDAP_ADD_USER_DESC') #guard for none
+        self.scarfDescs = self.getAttribute('LDAP_ADD_USER_DESC') #guard for none
         self.baseUserDN = self.config.get('scarf','LDAP_BASE_USER_DN')
         self.baseGrpDN = self.config.get('scarf','LDAP_BASE_GRP_DN')
-        self.userAttrs = self.getScarfAttribute('LDAP_USER_ATTRS') #can be none
+        self.userAttrs = self.getAttribute('LDAP_USER_ATTRS') #can be none
+        self.grpAttrs = self.config.get('scarf','LDAP_GPR_ATTRS') 
+        self.addOU = self.config.get('scarf','LDAP_ADD_OU')
+        self.gidAttribute = self.config.get('scarf','LDAP_ADD_GRP_ID_ATTR')
+        self.uidAttribute = self.config.get('scarf','LDAP_ADD_USER_ID_ATTR')
+        self.userPrefix = self.config.get('scarf','LDAP_USER_PREFIX')
+        self.homeDir = self.config.get('scarf','LDAP_USER_HOME_DIR') #ALL DLS user use this location
+        self.DLS_gid = self.config.get('scarf','LDAP_DLS_GID') #All DLS scarf a/c belongs to this group
+        self.connected = False
     
     def connect(self):
         '''
         Open a connection and bind to the ldap server        
         '''
         try:
-            ldapproxy = ldap.initialize(self.config.get('scarf','LDAP_URL'))
+            self.connection = ldap.initialize(self.config.get('scarf','LDAP_URL'))
             #self.ldaproxy.protocol_version = ldap.VERSION3
-            ldapproxy.set_option(ldap.OPT_PROTOCOL_VERSION, ldap.VERSION3)
-            ldapproxy.set_option(ldap.OPT_NETWORK_TIMEOUT, self.config.get('scarf','LDAP_TIMEOUT')) #for connecting to server operations
-            ldapproxy.set_option(ldap.TIMEOUT, self.config.get('scarf','LDAP_TIMEOUT')) #for ldap operations
-            ldapproxy = ldap.ldapobject.ReconnectLDAPObject(self.config.get('scarf','LDAP_URL'),trace_level=1,retry_max=3)            
-            ldapproxy.simple_bind(self.config.get('scarf','LDAP_USER'), self.config.get('scarf','LDAP_PASSWORD'))
+            self.connection.set_option(ldap.OPT_PROTOCOL_VERSION, ldap.VERSION3)
+            self.connection.set_option(ldap.OPT_NETWORK_TIMEOUT, self.config.get('scarf','LDAP_TIMEOUT')) #for connecting to server operations
+            self.connection.set_option(ldap.TIMEOUT, self.config.get('scarf','LDAP_TIMEOUT')) #for ldap operations
+            self.connection = ldap.ldapobject.ReconnectLDAPObject(self.config.get('scarf','LDAP_URL'),trace_level=1,retry_max=3)            
+            self.connection.simple_bind(self.config.get('scarf','LDAP_USER'), self.config.get('scarf','LDAP_PASSWORD'))
+            self.connected = True
             self.logger.info("Successfully bound to %s" % self.config.get('scarf','LDAP_URL'))
+            #return ldapproxy        #none is returned if exception
             
-            return ldapproxy        #none is returned if exception    
         except (ldap.SERVER_DOWN, ldap.INVALID_CREDENTIALS, ldap.INVALID_DN_SYNTAX), err:
             self.logger.error("Error connecting: %s" % err)
-            raise   #push up         
+            raise   #push up    
         
-    def getUser(self, connection, fedid):
+    def getGroup(self, grpName):
+        '''
+        Check if the group exists.  If group exists, return a dictionary of gid:list of members' UIDs, else None
+        ''' 
+        term = '(cn=%s)' % grpName #assertion syntax, operator in front
+        scope = ldap.SCOPE_SUBTREE
+        try:
+            result = self.connection.search_s(self.baseGrpDN, scope, term, self.grpAttrs)
+            
+            if len(result) == 0:
+                self.logger.debug('No scarf account found for visit group(%s)...' % grpName)
+                return None
+            
+            if len(result) > 1:
+                raise ValueError('More than 1 LDAP group account retrieved for %s!!!' % grpName)
+            
+            #handle the result
+            dn, attributes = result[0]
+            #return {attributes['gidNumber'][0]:attributes['memberUid']}
+            return {dn:attributes['memberUid']}
+        
+        except (ValueError, ldap.LDAPError), error_message:
+            self.logger.error("Error verifying visitId(%s): %s " %(grpName, error_message))
+            raise
+        
+        
+             
+        
+    def getUser(self, fedid):
         '''
         Check if user has a scarf account and the correct scarf resource allocated.
-        If the user exists, the user DN is returned.     
+        If the user exists, the user ldap uid is returned.     
         '''
         term = '(&(name=%s)(objectClass=posixAccount))' % fedid #assertion syntax, operator in front
         scope = ldap.SCOPE_SUBTREE
         try:
             #userAttrs can be None
-            result = connection.search_s(self.base,scope,term,self.userAttrs) #userAttrs can be None
+            result = self.connection.search_s(self.baseUserDN,scope,term,self.userAttrs) #userAttrs can be None
             
-            if len(result == 0):
+            if len(result) == 0:
                 self.logger.debug('No scarf account found for user(%s)...') % fedid
                 return None
             
@@ -78,37 +115,108 @@ class ldapProxy(object):
                     pendingDesc.append(entry)
             
             if len(pendingDesc) > 0:
-                self.addDesc(connection, dn, pendingDesc) 
+                self.addDesc(self.connection, dn, pendingDesc) 
             
-            return dn
+            return attributes['uid'][0] #uid is the same as cn
         
         except (ValueError, ldap.LDAPError), error_message:
-            self.logger.error("Error verifyig user(%s): %s " %(fedid, error_message))
-            raise
+            self.logger.error("Error verifying user(%s): %s " %(fedid, error_message))
+            
 
     
-    def disconnect(self, connection):
+    def disconnect(self):
         '''
         Disconnect 
         '''
-        connection.unbind_s()
+        if self.connected:
+            self.connection.unbind_s()
+            self.connected = False
     
     def addUser(self, fedid):
         '''
-        add a scarf user
+        add a scarf user and create the home directory folder.  All DLS scarf users belong the the default DLS group.
         '''
         #If you are generating the LDAP filter dynamically (or letting users specify the filter), then you may want to use the escape_filter_chars() and filter_format() functions in the ldap.filter module to keep your filter strings safely escaped.
         #compare_s method returns  true1/false0 if a DN exists/not (only if you know the DN)
+        baseUserDN = self.addOU + self.baseUserDN
+        try:
+            newUidNum = self.getNextLDAPId(self.connection, baseUserDN, self.uidAttribute)
+            if newUidNum is None:
+                raise ValueError('Failed to retrieve new uid number from ldap, cannot add user(%s)!' % fedid)
+            else:
+                #compile CN
+                baseNumPart = 10**(8-len(self.userPrefix))
+                cn = self.uidAttribute + str(newUidNum % baseNumPart).zfill(8-len(self.userPrefix)) #e.g. fac00058
+                self.logger.debug('Compiled CN(%s) for user($s)....' %(cn, fedid))
+                descs = self.scarfDescs # a list                
+                dn = 'cn=' + cn + ',' + baseUserDN 
+                homeDir = self.homeDir + '/' + cn #!!!! this needs to be clarified, where should the home dir be!
+                #list of list of attribute:valueList               
+                add_record = [
+                     ('objectclass', ['top','inetOrgPerson','posixAccount','extensibleObject']),
+                     ('name',[fedid]),
+                     ('description',descs),
+                     ('cn', [cn] ),
+                     ('sn', [cn]),
+                     ('uid',[cn]),
+                     ('uidNumber', [newUidNum]),
+                     ('loginShell',['/bin/bash']),
+                     ('gidNumber',[self.DLS_gid]),  #all dls user belong to this primary group
+                     ('homeDirectory',[homeDir]) #!!! this needs to be clarified
+                ]                
+                self.connection.add_s(dn, add_record)
+                
+                self.logger.info("Setting up %s's scarf home directory at %s...." %(fedid, homeDir))
+                #check if cn starts with lowercase char
+                if re.match('|^a-z|', cn) == None:
+                    raise OSError('Scarfid does not starts with a lower case character....')  
+                else:
+                    if os.system("cp -a /etc/skel %s" % homeDir) == 0 and os.system("chown -R %s:%s %s" %(cn,self.DLS_gid,homeDir)) == 0:                    
+                        self.logger.info("copied default files and created %s's home directory at %s, also chown'ed user and group permission...." %(fedid, homeDir))
+                    else:
+                        self.logger.warn("Unable to create %s's home directory or chown user/group permission...." %(fedid, homeDir))
+                
+                return cn
+            
+        except (ValueError, ldap.LDAPError, OSError), err:
+            #catch all erros, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
+            self.logger.error('Error trying to add a ldap user(%s): %s....'% (fedid, err))
+            raise
+    
         
-    def addGroup(self, visitId):
+    def addGroup(self, grpName):
         '''
-        add a scarf group
+        add a scarf group. The group name is the icat investigation visitId with all '-' changed to '_'
+        returns the new group gidNumber
         '''
+        baseGrpDN = self.addOU + self.baseGrpDN
+        try:
+            newGidNum = self.getNextLDAPId(self.connection, baseGrpDN, self.gidAttribute)
+            if newGidNum is None:
+                raise ValueError('Failed to retrieve new gid number from ldap, cannot add group(%s)!' % grpName)
+            else:
+                dn = 'cn=' + grpName + ',' + baseGrpDN 
+                #list of list of attribute:valueList               
+                add_record = [
+                     ('objectclass', ['top','posixGroup']),
+                     ('cn', [grpName] ),
+                     ('gidNumber', [newGidNum] ),
+                ]                
+                self.connection.add_s(dn, add_record)
+                #return newGidNum
+                return dn
+            
+        except (ValueError, ldap.LDAPError), err:
+            #catch all erros, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
+            self.logger.error('Error trying to add a ldap group(%s): %s....'% (dn, err))
+            raise        
+        
+        
     def getDescs(self):
         '''
         Extract the scarf descriptions list from the configuration object
         '''
-        desc = self.config.get('scarf','LDAP_ADD_USER_DESC')
+        desc = self.config.get('scarf','LDAP_ADD_USER_DESC') #self.scarfDescs
         descriptions = desc.split(',')
         for index in range(len(descriptions)):
             d1 = descriptions[index].strip()
@@ -123,15 +231,15 @@ class ldapProxy(object):
         '''
         Extract the scarf user attributes to return in a search from the configuration object
         '''
-        attrs = self.config.get('scarf','LDAP_USER_ATTRS')
+        attrs = self.config.get('scarf','LDAP_USER_ATTRS') #a String
         attributes = attrs.split(',')
         return attributes
     
     def getAttribute(self, attribute):
         '''
-        Extract a scarf attribute from the configuration object and format the values
+        Extract a scarf attribute from the configuration object and format the values into a list
         '''
-        attr = self.config.get('scarf', attribute)
+        attr = self.config.get('scarf', attribute) # a String
         if attr is not None:
             values = attr.split(',')
             for index in range(len(values)):
@@ -145,70 +253,52 @@ class ldapProxy(object):
         else:
             return None
 
-    def addDesc(self, connection, dn, pendingDesc):
+    def addDesc(self, dn, pendingDesc):
         '''
         add ldap descripton/s to the target DN
         The description shows the SCARF resource permitted
         ''' 
         try:
             mod_desc = [(ldap.MOD_ADD, 'description', pendingDesc)] # pendingDesc should be a list ['',''] but can use '' if only 1 value
-            connection.modify_s(dn, mod_desc)
+            self.connection.modify_s(dn, mod_desc)
         except ldap.LDAPError, error_message:
             self.logger.error("Error adding description. %s " % error_message)
             raise
         
-    def getNextLDAPId(self, connection, dn, attribute):
+    def getNextLDAPId(self, dn, attribute):
         '''
         Get the next available LDAP id for creating a new group or user
         Mock a transaction to increment the available LDAP id
         ''' 
-        #param = 'objectClass=*'
-        #scope = ldap.SCOPE_BASE #stop at base, no drill down      
-        
         try:
-            #result = connection.search_s(dn,scope,param,attribute)   #attribute should be a list ['','']                     
-            #if len(result) != 1:
-            #    raise ValueError('Error retrieving next %s, expecting 1 record but %d of records retrieved!' %(attribute[0],len(result)))
-                
-            #dn, entry = result[0]
-            #currentId = entry[attribute[0]][0]
-            currentId = self.getAvailableLDAPId(connection,dn,attribute)
-            self.logger.debug('Next %s for %s is %s' %(attribute[0],dn,currentId))
-            nextId = int(currentId) + 1 
-            #values = [str(nextId)] #format into a list
-            values = str(nextId) #only 1 value can use String
-            #need to update the ldap value to the next one.  Replace the attribute with the values list
-            self.success = False
-            
-            for index in range(5):    # try 5 times
+            for index in range(5):    # only try 5 times
+                currentId = self.getAvailableLDAPId(self.connection,dn,attribute)
+                #self.logger.debug('Next %s for %s is %s' %(attribute[0],dn,currentId))
+                nextId = int(currentId) + 1 
+                #need to update the ldap value to the next one.  Replace the attribute with the values list
                 self.logger.debug('%i try at updating the %s number to %i' %(index, attribute[0], nextId))
-                try:
-                    mod_spec = [(ldap.MOD_DELETE, attribute[0], entry)]
-                    connection.modify_s(dn, mod_spec)
-                    self.success = True
+                try:                    
+                    #mock first delete, then add
+                    #assuming that if currentId not exist, MOD_DELETE will throw NO_SUCH_ATTRIBUTE error and abort before add
+                    mod_spec = [(ldap.MOD_DELETE, attribute[0], [currentId]),(ldap.MOD_ADD, attribute[0], [str(nextId)])]
+                    self.connection.modify_s(dn, mod_spec)
+                    return nextId
+                    #break
                 except ldap.NO_SUCH_ATTRIBUTE, err:
-                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i' %(index,attribute[0],dn,nextId))
+                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,err))
                     continue
-                except:
-                    #self.logger.
-                    pass
+                except Exception, e:
+                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,str(e)))
+                    continue
             
-            ##needs to do  delete first then update
-            mod_spec = [(ldap.MOD_DELETE, attr2retrieve[0], entry),(ldap.MOD_ADD, attr2retrieve[0], values)]
-            connection.modify_s(dn, mod_spec)
-            #NO_SUCH_ATTRIBUTE  if delete cannot find the object.....
-            # https://www.packtpub.com/books/content/configuring-and-securing-python-ldap-applications-part-2 (example for MOD_DELETE
-            #retry : https://julien.danjou.info/blog/2015/python-retrying
-            
-            
-            
-            
-            
-        except (ValueError,ldap.LDAPError), error_message:
+            if index == 4:  #pyton does not increment the index if limit reached
+                raise IndexError('Failed to update the %s for %s with the next value %i after %i try!' %(attribute[0],dn,nextId,index+1))
+
+        except (ValueError,ldap.LDAPError, IndexError), error_message:
             self.logger.error("Error getting the next %s id: %s " %(attribute, error_message))
             raise   
             
-    def getAvailableLDAPId(self, connection, dn, attr):
+    def getAvailableLDAPId(self, dn, attr):
         '''
         Get the next available LDAP id for creating a new group or user
         '''
@@ -216,9 +306,9 @@ class ldapProxy(object):
         scope = ldap.SCOPE_BASE #stop at base, no drill down
         
         try:
-            result = connection.search_s(dn,scope,param,attr)
+            result = self.connection.search_s(dn,scope,param,attr)
             if len(result) != 1:
-                raise ValueError('Error retrieving next %s, expecting 1 record but %d of records retrieved!' %(attribute[0],len(result)))
+                raise ValueError('Error retrieving next %s, expecting 1 record but %d of records retrieved!' %(attr[0],len(result)))
             
             dn, entry = result[0]
             currentId = entry[attr[0]][0] #first value on the specified attribute
@@ -229,4 +319,50 @@ class ldapProxy(object):
               
         except (ValueError,ldap.LDAPError), error_message:
             self.logger.error("Error getting the next %s id: %s " %(attr, error_message))
-            raise   
+            raise 
+        
+    def addGroupMembers(self, dn, uids):
+        '''
+        Add the list of member UIDs to a ldap group
+        '''
+        #groupDN = self.addOU + self.baseGrpDN
+        #dn = 'cn=' + grpName + ',' + groupDN 
+        try:
+            mod_desc = [(ldap.MOD_ADD, 'memberUid', uids)]
+            self.connection.modify_s(dn, mod_desc)           
+            
+        except ldap.LDAPError, err:
+            self.logger.error('Error adding new members to ldap group dn(%s): %s!!!' %(dn, err))
+            raise
+        #now add gid to each user's account
+        '''
+        try:
+            for uid in uids:
+                if(uid.startswith(self.userPrefix)):    #TODO: needs to handle this better, we need the DN if the account is not in the facilityusers ou
+                    userDN = 'cn=' + uid + ',' + self.addOU + self.baseUserDN
+                    self.logger.debug('about to add gid(%i) to scarf account(%s)' %(gid,userDN))
+                    mod_desc = [(ldap.MOD_ADD, 'gidNumber', [str(gid)])]
+                    self.connection.modify_s(userDN, mod_desc)
+        except ldap.LDAPError, err:
+            self.logger.error('Error adding gid(%i) to ldap member(%s): %s!!!' %(gid, uid, err))
+        '''        
+        
+         
+    ''''' 
+    def updateLDAPId(self, dn, attr, currentId):
+        
+        Increment the current id  !!! can't use modlist.  The old value is not checked against the LDAP entry.  Modlist is just a helper function
+        to build a dictionary of what needs to be updated on the application side!!!!
+            
+        nextId = int(currentId) + 1 
+        
+        try:
+            old_entry = {attr[0]:[currentId]}   #values should be a list or can it be a plain String?????
+            new_entry = {attr[0]:[str(nextId)]}
+            param = modlist.modifyModlist(old_entry, new_entry)
+            self.connection.modify_s(dn,param)
+            
+        except ldap.LDAPError, err:
+            self.logger.debug('Unable to replace the currentId(%s) for %s %s: %s...' %(currentId,dn, attr[0],err))    
+            raise 
+    '''

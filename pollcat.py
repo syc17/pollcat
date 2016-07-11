@@ -62,10 +62,10 @@ def updateDownloadRequest(preparedId, downloadId):
     """
     logger.info("Request %s finished, marking as complete" % preparedId)
     r = requests.put(
-        url=config.get('main', 'TOPCAT_URL') + 'api/v1/admin/download/' + str(downloadId) + '/status',
+        url=config.get('main', 'TOPCAT_URL') + '/topcat/admin/download/' + str(downloadId) + '/status',
         params={
             'icatUrl'   : config.get('main', 'ICAT_URL'), 
-            'sessionId' : getICAT(config).sessionId,
+            'sessionId' : icatclient.getInstance().sessionId,
             'value'     : 'COMPLETE'
         },
         headers={"Content-type": "application/x-www-form-urlencoded; charset=UTF-8"}
@@ -79,10 +79,10 @@ def getDownloadRequests():
     """
     logger.debug("Retrieving Globus download requests from TopCAT")
     response = requests.get(
-        url=config.get('main', 'TOPCAT_URL') + '/api/v1/admin/downloads',
+        url=config.get('main', 'TOPCAT_URL') + '/topcat/admin/downloads',
         params={
             'icatUrl'     : config.get('main', 'ICAT_URL'), 
-            'sessionId'   : getICAT(config).sessionId,
+            'sessionId'   : icatclient.getInstance().sessionId,
             'queryOffset' : "where download.transport = '" + config.get('main', 'PLUGIN_NAME') + 
                             "' and download.isDeleted = false and download.status = " +
                             "org.icatproject.topcat.domain.DownloadStatus.RESTORING"
@@ -99,20 +99,13 @@ def mainloop():
         if checkDatafileStatus(request['preparedId'], datafileIds):
             logger.info("Request %s _IS_ ready" % request['preparedId'])
             try:
-                # import plugin class and execute the run method
-                module = importlib.import_module(
-                    "plugins." + 
-                    config.get('main', 'PLUGIN_NAME') + "." +
-                    config.get('main', 'PLUGIN_NAME')
-                )
-                plugin_class = getattr(module, 'Plugin')
-                logger.debug("Initialising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
+                logger.debug("Initilising plugin: %s" % config.get('main', 'PLUGIN_NAME'))
                 plugin = plugin_class(request, datafileIds, config, logger)
                 plugin.run()
+                updateDownloadRequest(request['preparedId'], request['id'])
             except Exception, e:
                 logger.error("%s plugin failed" % config.get('main', 'PLUGIN_NAME'), exc_info=True)
                 continue
-            updateDownloadRequest(request['preparedId'], request['id'])
         else:
             logger.info("Request %s _IS_NOT_ ready" % request['preparedId'])
             continue
@@ -124,6 +117,16 @@ if __name__ == "__main__":
 
     logging.config.fileConfig('logging.ini')
     logger = logging.getLogger('root')
+
+    # import plugin class
+    module = importlib.import_module(
+        "plugins." + 
+        config.get('main', 'PLUGIN_NAME') + "." +
+        config.get('main', 'PLUGIN_NAME')
+    )
+    plugin_class = getattr(module, 'Plugin')
+
+    icatclient = IcatClient(config)
 
     while True:
         try:

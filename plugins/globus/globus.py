@@ -3,7 +3,6 @@ import os
 import icat
 import shutil
 
-from pollcat import chunks, getICAT
 from common import *
 
 """
@@ -21,6 +20,8 @@ class Plugin(object):
         self.datafileIds = datafileIds
         self.config = config
         self.logger = logger
+
+        self.icatclient = IcatClient(config)
 
         # merge globus config with main pollcat config
         self.config.read('plugins/globus/globus.config')
@@ -59,7 +60,7 @@ class Plugin(object):
     
         for ids in chunks(datafileIds, int(self.config.get('globus', 'LOCATION_CHUNKS'))):
             query = 'SELECT df.location FROM Datafile df WHERE df.id IN (%s)' % ids
-            for location in getICAT(self.config).search(query):
+            for location in self.icatclient.getInstance().search(query):
                 source = "%s/%s" % (SOURCE, location)
                 destination = "%s/%s/%s/%s" % (DESTINATION, username, downloadname, location)
     

@@ -1,4 +1,4 @@
-import icat
+import common
 import re
 import os.system
 import os.path
@@ -41,7 +41,7 @@ class Plugin(object):
         Run the plugin, create the LDAP authorisation structure and LSF account, copy the files across and set file permissions
         
         '''
-        icatClient = IcatClient(self.config)
+        icatClient = common.IcatClient(self.config)
         
         for dfId in self.datafileIds:  #dfId is an int, icat.datafile.id  
             '''
@@ -72,7 +72,7 @@ class Plugin(object):
                     '''
                     get the users associated with the visitId. Capitalise visitId.
                     '''
-                    users = icatClient.search("SELECT u FROM User u JOIN u.investigationUsers iu JOIN iu.investigation inv WHERE inv.visitId = '%s'" % visitId.upper())
+                    users = icatClient.getInstance().search("SELECT u FROM User u JOIN u.investigationUsers iu JOIN iu.investigation inv WHERE inv.visitId = '%s'" % visitId.upper())
                     if len(users) > 0:
                         self.visitId_users[visitId] = users
                     else:
@@ -228,7 +228,7 @@ class Plugin(object):
         '''
         self.logger.info('Preparing to copy %i files for %s....' %( len(dfIDs, visitID)))
         #group files into blocks
-        for dfs in chunks(dfIDs, self.locationChunks):            
+        for dfs in common.chunks(dfIDs, self.locationChunks):            
             #fids = [x for x in dfs if x not in self.skippedDFids] 
             locations = [self.df_locations[fid] for fid in dfs if fid in self.df_locations]
             

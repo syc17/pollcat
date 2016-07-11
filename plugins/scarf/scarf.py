@@ -1,11 +1,8 @@
+import icat
 import re
 import os.system
 import os.path
-
 import shutil
-
-from pollcat import chunks, getICAT
-from common import *
 
 import ldapProxy
 from icat.exception import ICATError
@@ -44,7 +41,7 @@ class Plugin(object):
         Run the plugin, create the LDAP authorisation structure and LSF account, copy the files across and set file permissions
         
         '''
-        icatClient = getICAT(self.config)
+        icatClient = IcatClient(self.config)
         
         for dfId in self.datafileIds:  #dfId is an int, icat.datafile.id  
             '''
@@ -55,7 +52,7 @@ class Plugin(object):
                 '''
                 get each file's location
                 '''                
-                datafile = icatClient.search('SELECT df FROM Datafile WHERE df.id=%s' % str(dfId))
+                datafile = icatClient.getInstance().search('SELECT df FROM Datafile WHERE df.id=%s' % str(dfId))
                 location = datafile[0].location
                 self.df_locations[dfId] = location; #add an entry, each location is unique
             except(ValueError, ICATError), err:
@@ -258,7 +255,7 @@ class Plugin(object):
                 
                 #set permission, assume that root dls folder is already created and has permission set
                 if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,self.dlsDefaultUser,beamlinePath)) == 0:
-                    self.logger.info("set glassfish permission recursively for %s path..." % beamlinePath)
+                    self.logger.info("setting glassfish permission recursively for %s path..." % beamlinePath)
                     if os.system("chmod 775 %s" % beamlinePath) != 0:
                         self.logger.warn('Failed to set permission on %s to 775' % beamlinePath)
                 else:

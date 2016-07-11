@@ -26,13 +26,13 @@ class Plugin(object):
         self.destination = self.config.read('scarf','DATA_DESTINATION')
         self.source = self.config.read('scarf','DATA_SOURCE')
         self.locationChunks = int(self.config.get('scarf', 'LOCATION_CHUNKS'))
-        self.dlsDefaultUser = 'glassfish' # both for os group and user
+        self.dlsDefaultUser = 'glassfish' # both for os group and os user
         self.configLdap()
         # common variable lists
         self.skippedDFids = []      #int
         self.skippedVisitIds = []   #String    
         # common variable maps        
-        self.df_locations = {}  #diId:icat.location  
+        self.df_locations = {}  #dfId:icat.location  
         self.visitId_dfIds = {} #visitId:[difIds]
         self.visitId_users = {} #visitId:[icat.user]
 
@@ -57,7 +57,7 @@ class Plugin(object):
                 self.df_locations[dfId] = location; #add an entry, each location is unique
             except(ValueError, ICATError), err:
                 self.skippedDFids.append(dfId)
-                self.logger.error("%s retrieving datafile(%s)'s location....Skipping this file" %(err, str(dfId)))
+                self.logger.error("%s retrieving datafile(%i)'s location....Skipping this file" %(err, dfId))
                 continue            
                        
             visitId = self.getVisitId(self.location)           
@@ -81,7 +81,7 @@ class Plugin(object):
                          
                 except (ValueError, ICATError), err:
                     self.skippedVisitIds.append(visitId)
-                    self.logger.error('Error %s retrieving users by visitId(%s) ....Skipping this file' %(err, str(self.visitId)))
+                    self.logger.error('Error %s retrieving users by visitId(%s) ....Skipping this visitId' %(err, str(self.visitId)))
                     continue
         #finished processing all files in the request.  We have the users associated with the visitId plus each file's location   
             
@@ -95,7 +95,6 @@ class Plugin(object):
             
             visit_id = vId.key()[0] 
             
-            #ldap_grp_memUIDs = {} #gid:[memUIDs]
             users = self.visitId_users(visit_id) 
             if users is None:
                 self.logger.warn('No icat users for visit_id(%s)' % visit_id)   
@@ -118,13 +117,13 @@ class Plugin(object):
             try:
                 if self.proxy.connected is False:
                     self.proxy.connect()
-                
-                ldap_grp_memUIDs = self.proxy.getGroup(ldap_grpName) # could be None if group not found.  Dict[dn:uids]
+                #ldap_grp_memUIDs = {} #Dict[dn:uids]            
+                ldap_grp_memUIDs = self.proxy.getGroup(ldap_grpName) # could be None if group not found.  
                 
                 if ldap_grp_memUIDs is None:
                     #create the group, can add grp members later
                     dn = self.proxy.addGroup(ldap_grpName) #gidNum is an int
-                    # add all the uids and update each with gid
+                    # add all the uids to ldap group a/c
                     self.proxy.addGroupMembers(dn, [x for x in icat_grpMems.values() if x is not None]) 
                 
                 else: # check if we need to add users to the ldap group, we do no remove existing ldap grp members!!!
@@ -134,7 +133,13 @@ class Plugin(object):
                     else:
                         self.logger.debug('No new members to add to ldap group(%s)...' %ldap_grpName)                
                 
-                #################now do the LSF group, membership can only be compared after we have checked if the grp members have SCARF a/c 
+                #################TODO: the LSF group, membership can only be compared after we have checked if the grp members have SCARF a/c 
+                
+                ###### 11/7/2016 awaiting clarification of requirements
+                
+                
+                
+                ################# 
             
             
             except Exception, err:
@@ -149,7 +154,7 @@ class Plugin(object):
         
         #!!!!!!!!!!!!!!log the skipped items!!!!!!!!!!!!!!!!! 
         
-        #create the OS users and copy files
+        #create the OS group/users and copy files
         for visitGroup in self.visitId_users:
             #we will create the file structure anyway even if something has gone wrong in managing the Scarf account
             #if(visitGroup.key()[0] in self.skippedVisitIds):
@@ -173,7 +178,7 @@ class Plugin(object):
                     #do next fedid
                     continue               
         
-            #Now copy the files and set file permissons
+            #Now copy the files and set file permissions
             #no point in processing it if we failed to get icat.location
             if visitGroup.key()[0] in self.skippedVisitIds:
                 self.logger.warn('Skip copying files for %s as we had errors creating the user group....' % visitGroup.key()[0])
@@ -226,10 +231,9 @@ class Plugin(object):
         
         The glassfish group has already been created.  It has 1 user (glassfish, uid = 50548)
         '''
-        self.logger.info('Preparing to copy %i files for %s....' %( len(dfIDs, visitID)))
+        self.logger.info('Preparing to copy %i files for %s....' %( len(dfIDs), visitID))
         #group files into blocks
-        for dfs in common.chunks(dfIDs, self.locationChunks):            
-            #fids = [x for x in dfs if x not in self.skippedDFids] 
+        for dfs in common.chunks(dfIDs, self.locationChunks): 
             locations = [self.df_locations[fid] for fid in dfs if fid in self.df_locations]
             
             for location in locations:                
@@ -261,7 +265,7 @@ class Plugin(object):
                 else:
                     self.logger.warn("Failed to set glassfish permission recursively for %s path!!!" % beamlinePath )   
                 #now try and set the visit group permission
-                if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,self.dlsDefaultUser,grpPath)) == 0:
+                if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,visitID,grpPath)) == 0:
                     self.logger.info("set %s permission recursively for %s path..." % (visitID,grpPath))
                     if os.system("chmod 750 %s" % grpPath) != 0:
                         self.logger.warn('Failed to set permission on %s to 750' % grpPath)
@@ -282,53 +286,30 @@ class Plugin(object):
         '''
         os.sep = '/'
         path_list = location.split(os.sep)
-        visitId = path_list[5]     #.replace('-','_') #swap all - to _        
+        visitId = path_list[5]         
         self.logger.info('location(%s) has visitId = %s' %(location, visitId))        
         return visitId
-    '''
-    def getDN(self, user, vId):
-        
-        Retreve the ldap dn for a user in the visit group, if none found, return None
-               
-        #for index in users:    #get all the users for he visit id
-        self.logger.debug('Processing visitId(%s) fedid(%s)...' %(vId, user.name))
-        fedid = user.name
-        if fedid is None:
-            self.logger.debug('VisitId(%s) : failed to extract fedid from fedid(%s).  Skipping this user... ' %(vId, user.name))
-            #continue
-        else:
-            try:
-                if self.proxy.connected == False:
-                    self.proxy.connect()
-                
-                return self.proxy.getUser(self.ldapConn,fedid) #keep the dn for creating the ldap group                
-            except (ValueError,self.ldap.LDAPError), err:
-                self.logger.error('Error retrieving user dn for %s: %s' %(fedid, err))
-                
-    '''
+    
     def getUid(self, user, vId):
         '''
         Retreve the ldap uid for a user in the visit group, if none found, return None
-        '''        
-        #for index in users:    #get all the users for he visit id
-        self.logger.debug('Processing visitId(%s) fedid(%s)...' %(vId, user.name))
+        '''
+        self.logger.debug('Processing visitId(%s), fedid(%s)...' %(vId, user.name))
         fedid = user.name
         if fedid is None:
             self.logger.debug('VisitId(%s) : failed to extract fedid from user(%s).  Skipping this user... ' %(vId, user.name))
-            #continue
         else:
             try:
                 if self.proxy.connected == False:
                     self.proxy.connect()
                 
-                uid = self.proxy.getUser(fedid) #uid could be none
-                return uid                 
+                return self.proxy.getUser(fedid) #uid could be none
             except (ValueError,self.ldap.LDAPError), err:
                 self.logger.error('Error retrieving user dn for %s: %s' %(fedid, err)) 
                 
     def addGroup(self, visitId):
         '''
-        Check if the user group exist.  If not, create it.
+        Check if the user group exist on the OS.  If not, create it.
         '''
         try:
             if re.match('^[\w-]+$', visitId) == None:

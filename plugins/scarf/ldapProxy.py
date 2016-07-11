@@ -1,5 +1,6 @@
 '''
 Created on 11 May 2016
+Based on a PERL module written by Derek Ross, SCD
 
 @author: Shirley Crompton, Research Data Group, SCD
 '''
@@ -50,7 +51,6 @@ class ldapProxy(object):
             self.connection.simple_bind(self.config.get('scarf','LDAP_USER'), self.config.get('scarf','LDAP_PASSWORD'))
             self.connected = True
             self.logger.info("Successfully bound to %s" % self.config.get('scarf','LDAP_URL'))
-            #return ldapproxy        #none is returned if exception
             
         except (ldap.SERVER_DOWN, ldap.INVALID_CREDENTIALS, ldap.INVALID_DN_SYNTAX), err:
             self.logger.error("Error connecting: %s" % err)
@@ -58,7 +58,7 @@ class ldapProxy(object):
         
     def getGroup(self, grpName):
         '''
-        Check if the group exists.  If group exists, return a dictionary of gid:list of members' UIDs, else None
+        Check if the group exists.  If group exists, return a dictionary of dn:list of members' UIDs, else None
         ''' 
         term = '(cn=%s)' % grpName #assertion syntax, operator in front
         scope = ldap.SCOPE_SUBTREE
@@ -111,7 +111,7 @@ class ldapProxy(object):
             pendingDesc = []
             for entry in self.scarfDescs:
                 if entry not in attributes['description']:
-                    #need to modify the existing scarf record to add the descriptin
+                    #need to modify the existing scarf record to add the description
                     pendingDesc.append(entry)
             
             if len(pendingDesc) > 0:
@@ -150,7 +150,7 @@ class ldapProxy(object):
                 self.logger.debug('Compiled CN(%s) for user($s)....' %(cn, fedid))
                 descs = self.scarfDescs # a list                
                 dn = 'cn=' + cn + ',' + baseUserDN 
-                homeDir = self.homeDir + '/' + cn #!!!! this needs to be clarified, where should the home dir be!
+                homeDir = self.homeDir + '/' + cn 
                 #list of list of attribute:valueList               
                 add_record = [
                      ('objectclass', ['top','inetOrgPerson','posixAccount','extensibleObject']),
@@ -162,14 +162,14 @@ class ldapProxy(object):
                      ('uidNumber', [newUidNum]),
                      ('loginShell',['/bin/bash']),
                      ('gidNumber',[self.DLS_gid]),  #all dls user belong to this primary group
-                     ('homeDirectory',[homeDir]) #!!! this needs to be clarified
+                     ('homeDirectory',[homeDir]) 
                 ]                
                 self.connection.add_s(dn, add_record)
                 
                 self.logger.info("Setting up %s's scarf home directory at %s...." %(fedid, homeDir))
-                #check if cn starts with lowercase char
+                #check if cn starts with a lowercase char
                 if re.match('|^a-z|', cn) == None:
-                    raise OSError('Scarfid does not starts with a lower case character....')  
+                    raise OSError('ScarfId does not starts with a lower case character....')  
                 else:
                     if os.system("cp -a /etc/skel %s" % homeDir) == 0 and os.system("chown -R %s:%s %s" %(cn,self.DLS_gid,homeDir)) == 0:                    
                         self.logger.info("copied default files and created %s's home directory at %s, also chown'ed user and group permission...." %(fedid, homeDir))
@@ -179,7 +179,7 @@ class ldapProxy(object):
                 return cn
             
         except (ValueError, ldap.LDAPError, OSError), err:
-            #catch all erros, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
+            #catch all errors, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
             self.logger.error('Error trying to add a ldap user(%s): %s....'% (fedid, err))
             raise
     
@@ -187,7 +187,7 @@ class ldapProxy(object):
     def addGroup(self, grpName):
         '''
         add a scarf group. The group name is the icat investigation visitId with all '-' changed to '_'
-        returns the new group gidNumber
+        returns the new group dn
         '''
         baseGrpDN = self.addOU + self.baseGrpDN
         try:
@@ -207,7 +207,7 @@ class ldapProxy(object):
                 return dn
             
         except (ValueError, ldap.LDAPError), err:
-            #catch all erros, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
+            #catch all errors, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
             self.logger.error('Error trying to add a ldap group(%s): %s....'% (dn, err))
             raise        
         
@@ -278,7 +278,7 @@ class ldapProxy(object):
                 #need to update the ldap value to the next one.  Replace the attribute with the values list
                 self.logger.debug('%i try at updating the %s number to %i' %(index, attribute[0], nextId))
                 try:                    
-                    #mock first delete, then add
+                    #mock transaction: first delete, then add
                     #assuming that if currentId not exist, MOD_DELETE will throw NO_SUCH_ATTRIBUTE error and abort before add
                     mod_spec = [(ldap.MOD_DELETE, attribute[0], [currentId]),(ldap.MOD_ADD, attribute[0], [str(nextId)])]
                     self.connection.modify_s(dn, mod_spec)
@@ -291,7 +291,7 @@ class ldapProxy(object):
                     self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,str(e)))
                     continue
             
-            if index == 4:  #pyton does not increment the index if limit reached
+            if index == 4:  #python does not increment the index if limit reached
                 raise IndexError('Failed to update the %s for %s with the next value %i after %i try!' %(attribute[0],dn,nextId,index+1))
 
         except (ValueError,ldap.LDAPError, IndexError), error_message:
@@ -312,9 +312,7 @@ class ldapProxy(object):
             
             dn, entry = result[0]
             currentId = entry[attr[0]][0] #first value on the specified attribute
-            self.logger.debug('Next %s for %s is %s' %(attr[0],dn,currentId))
-            #nextId = int(currentId) + 1 
-            #res = {"dn":dn,"curId":currentId}
+            self.logger.debug('Current %s for %s is %s' %(attr[0],dn,currentId))
             return currentId
               
         except (ValueError,ldap.LDAPError), error_message:
@@ -324,9 +322,7 @@ class ldapProxy(object):
     def addGroupMembers(self, dn, uids):
         '''
         Add the list of member UIDs to a ldap group
-        '''
-        #groupDN = self.addOU + self.baseGrpDN
-        #dn = 'cn=' + grpName + ',' + groupDN 
+        '''        
         try:
             mod_desc = [(ldap.MOD_ADD, 'memberUid', uids)]
             self.connection.modify_s(dn, mod_desc)           
@@ -334,35 +330,3 @@ class ldapProxy(object):
         except ldap.LDAPError, err:
             self.logger.error('Error adding new members to ldap group dn(%s): %s!!!' %(dn, err))
             raise
-        #now add gid to each user's account
-        '''
-        try:
-            for uid in uids:
-                if(uid.startswith(self.userPrefix)):    #TODO: needs to handle this better, we need the DN if the account is not in the facilityusers ou
-                    userDN = 'cn=' + uid + ',' + self.addOU + self.baseUserDN
-                    self.logger.debug('about to add gid(%i) to scarf account(%s)' %(gid,userDN))
-                    mod_desc = [(ldap.MOD_ADD, 'gidNumber', [str(gid)])]
-                    self.connection.modify_s(userDN, mod_desc)
-        except ldap.LDAPError, err:
-            self.logger.error('Error adding gid(%i) to ldap member(%s): %s!!!' %(gid, uid, err))
-        '''        
-        
-         
-    ''''' 
-    def updateLDAPId(self, dn, attr, currentId):
-        
-        Increment the current id  !!! can't use modlist.  The old value is not checked against the LDAP entry.  Modlist is just a helper function
-        to build a dictionary of what needs to be updated on the application side!!!!
-            
-        nextId = int(currentId) + 1 
-        
-        try:
-            old_entry = {attr[0]:[currentId]}   #values should be a list or can it be a plain String?????
-            new_entry = {attr[0]:[str(nextId)]}
-            param = modlist.modifyModlist(old_entry, new_entry)
-            self.connection.modify_s(dn,param)
-            
-        except ldap.LDAPError, err:
-            self.logger.debug('Unable to replace the currentId(%s) for %s %s: %s...' %(currentId,dn, attr[0],err))    
-            raise 
-    '''

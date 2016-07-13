@@ -7,7 +7,7 @@ Based on a PERL module written by Derek Ross, SCD
 
 import ldap
 import re
-import os.system
+import os
 #from plugins import scarf
 
 class ldapProxy(object):

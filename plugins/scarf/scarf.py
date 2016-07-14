@@ -22,8 +22,13 @@ class Plugin(object):
         self.logger = logger
         # merge scarf config with main pollcat config
         self.config.read('plugins/scarf/scarf.config')        
+        self.destination = self.config.get('scarf','DATA_DESTINATION')
+        '''
         self.destination = self.config.read('scarf','DATA_DESTINATION')
-        self.source = self.config.read('scarf','DATA_SOURCE')
+        TypeError: read() takes exactly 2 arguments (3 given)
+        '''
+        
+        self.source = self.config.get('scarf','DATA_SOURCE')
         self.locationChunks = int(self.config.get('scarf', 'LOCATION_CHUNKS'))
         self.dlsDefaultUser = 'glassfish' # both for os group and os user
         self.configLdap()
@@ -99,7 +104,10 @@ class Plugin(object):
                 self.logger.warn('No icat users for visit_id(%s)' % visit_id)   
                 continue   
             #create a new map of filtered users' fedid:uid or uid=None for user w/o a scarf a/c.  Assume that there will always be icat investigationUsers
-            icat_grpMems = {user.name : self.getUid(user, visit_id) for user in users} #fedid:uid
+            #python 2.6 syntax
+            icat_grpMems = dict((user.name, self.getUid(user, visit_id)) for user in users) #fedid:uid            
+            #python 2.7 syntax
+            #icat_grpMems = {user.name : self.getUid(user, visit_id) for user in users} #fedid:uid
             #check if the requester has scarf a/c
             try:
                 if icat_grpMems[self.request['userName']] is None: #assume requester is a member of the investigationUsers: DLS has no public data.

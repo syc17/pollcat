@@ -3,3 +3,4 @@
 *.out
 *.project
 *.pydevproject
+/ScarfPluginLuancher.py

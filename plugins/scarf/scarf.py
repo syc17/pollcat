@@ -3,7 +3,7 @@ import re
 import os
 import shutil
 
-import ldapProxy
+from plugins.scarf import ldapWrapper
 from icat.exception import ICATError
 
 """
@@ -22,16 +22,10 @@ class Plugin(object):
         self.logger = logger
         # merge scarf config with main pollcat config
         self.config.read('plugins/scarf/scarf.config')        
-        self.destination = self.config.get('scarf','DATA_DESTINATION')
-        '''
-        self.destination = self.config.read('scarf','DATA_DESTINATION')
-        TypeError: read() takes exactly 2 arguments (3 given)
-        '''
-        
+        self.destination = self.config.get('scarf','DATA_DESTINATION')        
         self.source = self.config.get('scarf','DATA_SOURCE')
         self.locationChunks = int(self.config.get('scarf', 'LOCATION_CHUNKS'))
         self.dlsDefaultUser = 'glassfish' # both for os group and os user
-        self.configLdap()
         # common variable lists
         self.skippedDFids = []      #int
         self.skippedVisitIds = []   #String    
@@ -46,6 +40,7 @@ class Plugin(object):
         
         '''
         icatClient = common.IcatClient(self.config)
+        self.configLdap()
         
         for dfId in self.datafileIds:  #dfId is an int, icat.datafile.id  
             '''
@@ -115,12 +110,12 @@ class Plugin(object):
                     
             except (self.ldap.LDAPError, OSError), err:
                 #self.skippedVisitIds.append(visit_id)
-                #self.logger.error('Error adding requester(%s) to ldap: %s!!!!  Skipping this %s' %(self.request['userName'], err, visit_id)) 
-                self.logger.warn('Error adding requester(%s) to ldap: %s!!!!' %(self.request['userName'], err))
+                #self.logger.error('Error adding requester(%s) to ldapWrapper: %s!!!!  Skipping this %s' %(self.request['userName'], err, visit_id)) 
+                self.logger.warn('Error adding requester(%s) to ldapWrapper: %s!!!!' %(self.request['userName'], err))
                 continue
             
             ldap_grpName = visit_id.replace('-','_') #swap all - to _
-            #check if this group exists in ldap, if yes, don't need to re-create it
+            #check if this group exists in ldapWrapper, if yes, don't need to re-create it
             try:
                 if self.proxy.connected is False:
                     self.proxy.connect()
@@ -130,15 +125,15 @@ class Plugin(object):
                 if ldap_grp_memUIDs is None:
                     #create the group, can add grp members later
                     dn = self.proxy.addGroup(ldap_grpName) #gidNum is an int
-                    # add all the uids to ldap group a/c
+                    # add all the uids to ldapWrapper group a/c
                     self.proxy.addGroupMembers(dn, [x for x in icat_grpMems.values() if x is not None]) 
                 
-                else: # check if we need to add users to the ldap group, we do no remove existing ldap grp members!!!
+                else: # check if we need to add users to the ldapWrapper group, we do no remove existing ldapWrapper grp members!!!
                     uidsToAdd = list(set([x for x in icat_grpMems.values() if x is not None])).difference(ldap_grp_memUIDs.values()) #empty list returned if all included
                     if uidsToAdd:   #if list is not empty
                         self.proxy.addGroupMembers(ldap_grp_memUIDs.key()[0], uidsToAdd)                        
                     else:
-                        self.logger.debug('No new members to add to ldap group(%s)...' %ldap_grpName)                
+                        self.logger.debug('No new members to add to ldapWrapper group(%s)...' %ldap_grpName)                
                 
                 #################TODO: the LSF group, membership can only be compared after we have checked if the grp members have SCARF a/c 
                 
@@ -281,9 +276,9 @@ class Plugin(object):
 
     def configLdap(self):
         '''
-        Configure ldap authorisation 
+        Configure ldapWrapper authorisation 
         '''
-        self.proxy = ldapProxy(self.config, self.logger)
+        self.proxy = ldapWrapper.LdapProxy(self.config, self.logger)
         self.proxy.connect()
                 
         
@@ -299,7 +294,7 @@ class Plugin(object):
     
     def getUid(self, user, vId):
         '''
-        Retreve the ldap uid for a user in the visit group, if none found, return None
+        Retreve the ldapWrapper uid for a user in the visit group, if none found, return None
         '''
         self.logger.debug('Processing visitId(%s), fedid(%s)...' %(vId, user.name))
         fedid = user.name

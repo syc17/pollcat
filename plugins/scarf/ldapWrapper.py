@@ -10,7 +10,7 @@ import re
 import os
 #from plugins import scarf
 
-class ldapProxy(object):
+class LdapProxy(object):
     '''
     Ldap proxy to synchronise authorisation group information for the imported data files.
 
@@ -43,10 +43,9 @@ class ldapProxy(object):
         '''
         try:
             self.connection = ldap.initialize(self.config.get('scarf','LDAP_URL'))
-            #self.ldaproxy.protocol_version = ldap.VERSION3
             self.connection.set_option(ldap.OPT_PROTOCOL_VERSION, ldap.VERSION3)
-            self.connection.set_option(ldap.OPT_NETWORK_TIMEOUT, self.config.get('scarf','LDAP_TIMEOUT')) #for connecting to server operations
-            self.connection.set_option(ldap.TIMEOUT, self.config.get('scarf','LDAP_TIMEOUT')) #for ldap operations
+            self.connection.set_option(ldap.OPT_NETWORK_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for connecting to server operations
+            self.connection.set_option(ldap.OPT_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for ldap operations
             self.connection = ldap.ldapobject.ReconnectLDAPObject(self.config.get('scarf','LDAP_URL'),trace_level=1,retry_max=3)            
             self.connection.simple_bind(self.config.get('scarf','LDAP_USER'), self.config.get('scarf','LDAP_PASSWORD'))
             self.connected = True

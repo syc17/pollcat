@@ -51,15 +51,16 @@ class Plugin(object):
                 '''
                 get each file's location
                 '''                
-                datafile = icatClient.getInstance().search('SELECT df FROM Datafile WHERE df.id=%s' % str(dfId))
+                datafile = icatClient.getInstance().search('SELECT df FROM Datafile df WHERE df.id=%s' % str(dfId))
                 location = datafile[0].location
                 self.df_locations[dfId] = location; #add an entry, each location is unique
             except(ValueError, ICATError), err:
                 self.skippedDFids.append(dfId)
                 self.logger.error("%s retrieving datafile(%i)'s location....Skipping this file" %(err, dfId))
                 continue            
-                       
-            visitId = self.getVisitId(self.location)           
+            
+            self.logger.info("About to extract visit id from ")           
+            visitId = self.getVisitId(self.df_locations[dfId])           
             self.visitId_dfIds.setdefault(visitId,[]).append(dfId)
             
             
@@ -83,8 +84,9 @@ class Plugin(object):
                     self.logger.error('Error %s retrieving users by visitId(%s) ....Skipping this visitId' %(err, str(self.visitId)))
                     continue
         #finished processing all files in the request.  We have the users associated with the visitId plus each file's location   
+        self.logger.info('Finished processing all files in the request.  About to process LDAP entries....')
             
-        for vId in self.visitId_users:
+        for vId, users in self.visitId_users.iteritems():
             '''
             create the LDAP authorisation structure, LSF acct 
             '''
@@ -92,9 +94,11 @@ class Plugin(object):
                 self.logger.warn('Not processing SCARF and LSF accounts for visitId(%s) as it is in the skipped list!' %vId)
                 continue
             
-            visit_id = vId.key()[0] 
+            visit_id = vId 
             
-            users = self.visitId_users(visit_id) 
+            self.logger.info("About to process visitId %s and synchronise LDAP entries...." % visit_id)
+            
+            #users = self.visitId_users(visit_id)             
             if users is None:
                 self.logger.warn('No icat users for visit_id(%s)' % visit_id)   
                 continue   
@@ -108,7 +112,7 @@ class Plugin(object):
                 if icat_grpMems[self.request['userName']] is None: #assume requester is a member of the investigationUsers: DLS has no public data.
                     icat_grpMems[self.request['userName']] = self.proxy.addUser(self.request['userName']) #update dictionary
                     
-            except (self.ldap.LDAPError, OSError), err:
+            except (ldapWrapper.ldap.LDAPError, OSError), err:
                 #self.skippedVisitIds.append(visit_id)
                 #self.logger.error('Error adding requester(%s) to ldapWrapper: %s!!!!  Skipping this %s' %(self.request['userName'], err, visit_id)) 
                 self.logger.warn('Error adding requester(%s) to ldapWrapper: %s!!!!' %(self.request['userName'], err))
@@ -157,21 +161,21 @@ class Plugin(object):
         #!!!!!!!!!!!!!!log the skipped items!!!!!!!!!!!!!!!!! 
         
         #create the OS group/users and copy files
-        for visitGroup in self.visitId_users:
+        for visitGroup, users in self.visitId_users.iteritems():
             #we will create the file structure anyway even if something has gone wrong in managing the Scarf account
-            #if(visitGroup.key()[0] in self.skippedVisitIds):
-            #    self.logger.info("VisitID(%s) is in the skipped file, will skip creating local users..." % visitGroup.key()[0])
+            #if(visitGroup in self.skippedVisitIds):
+            #    self.logger.info("VisitID(%s) is in the skipped file, will skip creating local users..." % visitGroup)
             #    continue
-            group = visitGroup.key()[0].replace('-','_') #swap all - to _
+            group = visitGroup.replace('-','_') #swap all - to _
             try:
                 self.addGroup(group)
             except OSError, err:    #no point in copying files if can't create the OS Group     
-                self.skippedVisitIds.append(visitGroup.key()[0])
+                self.skippedVisitIds.append(visitGroup)
                 self.logger.error('Error creating group for visitId(%s): %s. Skipping this...' % (group, err))
                 #do next visitGroup
                 continue
             
-            fedids = [user.name for user in visitGroup.values()]
+            fedids = [user.name for user in users]
             for fedid in fedids:
                 try:
                     self.createuser(group, fedid)                 
@@ -182,12 +186,12 @@ class Plugin(object):
         
             #Now copy the files and set file permissions
             #no point in processing it if we failed to get icat.location
-            if visitGroup.key()[0] in self.skippedVisitIds:
-                self.logger.warn('Skip copying files for %s as we had errors creating the user group....' % visitGroup.key()[0])
+            if visitGroup in self.skippedVisitIds:
+                self.logger.warn('Skip copying files for %s as we had errors creating the user group....' % visitGroup)
                 continue
             else:
                 # filter out the skipped files as they have no icat.location
-                self.copydata(group,[df for df in self.visitId_dfIds[visitGroup.key()[0]].values() if df not in self.skippedDFids])  
+                self.copydata(group,[df for df in self.visitId_dfIds[visitGroup].values() if df not in self.skippedDFids])  
         
         #create a report in the log
         self.config.info("*******************IDS SCARF REPORT FOR TRANSFER REQUEST ID: %s" % str(self.request['id']))
@@ -306,20 +310,23 @@ class Plugin(object):
                     self.proxy.connect()
                 
                 return self.proxy.getUser(fedid) #uid could be none
-            except (ValueError,self.ldap.LDAPError), err:
+            except (ValueError,ldapWrapper.ldap.LDAPError), err:
                 self.logger.error('Error retrieving user dn for %s: %s' %(fedid, err)) 
+            except Exception, e:
+                self.logger.error('Other error retrieving user dn for %s: %s' %(fedid, e))
                 
     def addGroup(self, visitId):
         '''
         Check if the user group exist on the OS.  If not, create it.
         '''
         try:
-            if re.match('^[\w-]+$', visitId) == None:
+            #match from start to finish for occurrences of non-alphanumeric and '-' characters
+            if re.match('^[\w-]+$', visitId) == None:                
+                raise OSError("Group(%s) contains non-alphanumeric characters" % visitId)
+            else:
                 #go and force create the group 
                 if os.system("groupadd %s -f" % visitId) != 0:
-                    raise OSError("Failed to create group(%s) ...." % visitId)
-            else:
-                raise OSError("Group(%s) contains non-alphanumeric characters" % visitId)    
+                    raise OSError("Failed to create group(%s) ...." % visitId)    
         except OSError, err:
             self.logger.error('Error creating user group(%s) : %s...' %(visitId,err))
             raise

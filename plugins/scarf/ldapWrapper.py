@@ -95,8 +95,9 @@ class LdapProxy(object):
             result = self.connection.search_s(self.baseUserDN,scope,term,self.userAttrs) #userAttrs can be None
             
             if len(result) == 0:
-                self.logger.debug('No scarf account found for user(%s)...') % fedid
-                return None
+                #self.logger.debug('No scarf account found for user:%s...') % fedid  not sure why thisis causing an unsuppported operand error, can't seem to recognise fedid here
+                self.logger.debug('No scarf account found for user...')
+                return  #same as return None but return None causes error
             
             if len(result) > 1:
                 raise ValueError('More than 1 LDAP posixAccount retrieved for %s!!!' % fedid)
@@ -114,7 +115,7 @@ class LdapProxy(object):
                     pendingDesc.append(entry)
             
             if len(pendingDesc) > 0:
-                self.addDesc(self.connection, dn, pendingDesc) 
+                self.addDesc(dn, pendingDesc) 
             
             return attributes['uid'][0] #uid is the same as cn
         
@@ -139,7 +140,7 @@ class LdapProxy(object):
         #compare_s method returns  true1/false0 if a DN exists/not (only if you know the DN)
         baseUserDN = self.addOU + self.baseUserDN
         try:
-            newUidNum = self.getNextLDAPId(self.connection, baseUserDN, self.uidAttribute)
+            newUidNum = self.getNextLDAPId(baseUserDN, self.uidAttribute)
             if newUidNum is None:
                 raise ValueError('Failed to retrieve new uid number from ldap, cannot add user(%s)!' % fedid)
             else:
@@ -190,7 +191,7 @@ class LdapProxy(object):
         '''
         baseGrpDN = self.addOU + self.baseGrpDN
         try:
-            newGidNum = self.getNextLDAPId(self.connection, baseGrpDN, self.gidAttribute)
+            newGidNum = self.getNextLDAPId(baseGrpDN, self.gidAttribute)
             if newGidNum is None:
                 raise ValueError('Failed to retrieve new gid number from ldap, cannot add group(%s)!' % grpName)
             else:
@@ -271,7 +272,7 @@ class LdapProxy(object):
         ''' 
         try:
             for index in range(5):    # only try 5 times
-                currentId = self.getAvailableLDAPId(self.connection,dn,attribute)
+                currentId = self.getAvailableLDAPId(dn,[attribute])
                 #self.logger.debug('Next %s for %s is %s' %(attribute[0],dn,currentId))
                 nextId = int(currentId) + 1 
                 #need to update the ldap value to the next one.  Replace the attribute with the values list
@@ -279,21 +280,24 @@ class LdapProxy(object):
                 try:                    
                     #mock transaction: first delete, then add
                     #assuming that if currentId not exist, MOD_DELETE will throw NO_SUCH_ATTRIBUTE error and abort before add
-                    mod_spec = [(ldap.MOD_DELETE, attribute[0], [currentId]),(ldap.MOD_ADD, attribute[0], [str(nextId)])]
+                    mod_spec = [(ldap.MOD_DELETE, attribute, [currentId]),(ldap.MOD_ADD, attribute, [str(nextId)])]
                     self.connection.modify_s(dn, mod_spec)
                     return nextId
-                    #break
                 except ldap.NO_SUCH_ATTRIBUTE, err:
                     self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,err))
                     continue
+                except ldap.STRONG_AUTH_REQUIRED, es:
+                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,es))
+                    raise
                 except Exception, e:
+                    #may need to continue, but see if the first except traps the required condition
                     self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,str(e)))
-                    continue
+                    raise RuntimeError
             
             if index == 4:  #python does not increment the index if limit reached
                 raise IndexError('Failed to update the %s for %s with the next value %i after %i try!' %(attribute[0],dn,nextId,index+1))
 
-        except (ValueError,ldap.LDAPError, IndexError), error_message:
+        except (RuntimeError, ValueError,ldap.LDAPError, IndexError), error_message:
             self.logger.error("Error getting the next %s id: %s " %(attribute, error_message))
             raise   
             

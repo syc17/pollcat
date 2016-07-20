@@ -182,7 +182,9 @@ class Plugin(object):
                 except OSError, err:   
                     self.logger.error('Error creating user for %s: %s. Skipping this...' % (fedid, err))
                     #do next fedid
-                    continue               
+                    continue     
+                
+            self.logger.info('After creating users, about to go through visit ids and copy files....')          
         
             #Now copy the files and set file permissions
             #no point in processing it if we failed to get icat.location
@@ -191,14 +193,14 @@ class Plugin(object):
                 continue
             else:
                 # filter out the skipped files as they have no icat.location
-                self.copydata(group,[df for df in self.visitId_dfIds[visitGroup].values() if df not in self.skippedDFids])  
+                self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  
         
         #create a report in the log
-        self.config.info("*******************IDS SCARF REPORT FOR TRANSFER REQUEST ID: %s" % str(self.request['id']))
-        self.config.info("**********************Skipped visitIds : ")
-        self.config.info("****************************** %s : " % self.skippedVisitIds)
-        self.config.info("**********************Skipped datafiles : ")
-        self.config.info("****************************** %s : " % self.skippedDFids)
+        self.logger.info("*******************IDS SCARF REPORT FOR TRANSFER REQUEST ID: %s" % str(self.request['id']))
+        self.logger.info("**********************Skipped visitIds : ")
+        self.logger.info("****************************** %s : " % self.skippedVisitIds)
+        self.logger.info("**********************Skipped datafiles : ")
+        self.logger.info("****************************** %s : " % self.skippedDFids)
     
     def createuser(self, group, fedid): 
         '''
@@ -208,11 +210,14 @@ class Plugin(object):
         try:
             if re.match('^[\w-]+$', fedid) == None:
                 raise OSError("%s contains non-alphanumeric characters" % fedid)
-            #won't set user directory as the folder belongs to glassfish.  useradd will update if a/c exists
-            if os.system("useradd %s -g %s" % (fedid, group)) == 0:
-                self.logger.info("Creating new local user account for: %s" % fedid)
+            if os.system("id -u %s" % fedid) != 0:                
+                #useradd will update if a/c exists. -M do not create home directory
+                if os.system("useradd %s -g %s -M" % (fedid, group)) == 0:
+                    self.logger.info("Creating new local user account for: %s" % fedid)
+                else:
+                    raise OSError("Unable to create local user account for: %s" % fedid)
             else:
-                raise OSError("Unable to create locate user account for: %s" % fedid)
+                self.logger.info("User(%s) already exists!" % fedid)
                 
         except OSError, err:
             self.logger.error('Error creating %s with group(%s) : %s...' % (fedid, group, err))
@@ -248,7 +253,7 @@ class Plugin(object):
                 beamlinePath = self.destination + tempPath[0:tempPath.find('/',1,len(tempPath))] #dls + /beamline 
                 grpPath = self.destination + tempPath[:tempPath.find(visitID,0,len(tempPath))+len(visitID)]  #dls + /beamline/data/year/cm12167-3
                 #subFolderPath = tempPath[tempPath.find(visitID,0,len(tempPath))+len(visitID):]  #/location1/location2/file.dat 
-                self.config.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
+                self.logger.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
                                            
                 #check if visitId folder exists, linux doesn't care if it it ends with '/' or not
                 #if os.path.exists(grpPath):

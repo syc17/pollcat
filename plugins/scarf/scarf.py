@@ -184,8 +184,7 @@ class Plugin(object):
                     #do next fedid
                     continue     
                 
-            self.logger.info('After creating users, about to go through visit ids and copy files....')          
-        
+            self.logger.info('After creating users, about to go through visit ids and copy files....') 
             #Now copy the files and set file permissions
             #no point in processing it if we failed to get icat.location
             if visitGroup in self.skippedVisitIds:
@@ -193,6 +192,7 @@ class Plugin(object):
                 continue
             else:
                 # filter out the skipped files as they have no icat.location
+                #[dict1[x] for x in dict1.keys() if x not in skiplist]
                 self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  
         
         #create a report in the log
@@ -245,8 +245,9 @@ class Plugin(object):
         self.logger.info('Preparing to copy %i files for %s....' %( len(dfIDs), visitID))
         #group files into blocks
         for dfs in common.chunks(dfIDs, self.locationChunks): 
-            locations = [self.df_locations[fid] for fid in dfs if fid in self.df_locations]
-            
+            self.logger.debug("processing files: %s" % dfs)
+            locations = [self.df_locations[fid] for fid in dfs if fid in self.df_locations.keys()]
+            self.logger.debug("Extracted file locations: %s" % locations)
             for location in locations:                
                 #we will strip the '/dls' segment, the parent path including the 'dls' segment will be defined in the configuration file
                 tempPath = location[location.find('dls',0, len(location))+len('dls'):]          #/beamline/data/year/cm12167-3/location1/location2/file.dat

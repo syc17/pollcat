@@ -165,8 +165,9 @@ class Plugin(object):
             #we will create the file structure anyway even if something has gone wrong in managing the Scarf account
             #if(visitGroup in self.skippedVisitIds):
             #    self.logger.info("VisitID(%s) is in the skipped file, will skip creating local users..." % visitGroup)
-            #    continue
-            group = visitGroup.replace('-','_') #swap all - to _
+            #    continue                     
+            group = visitGroup.replace('-','_') #swap all - to _            
+            
             try:
                 self.addGroup(group)
             except OSError, err:    #no point in copying files if can't create the OS Group     
@@ -182,7 +183,7 @@ class Plugin(object):
                 except OSError, err:   
                     self.logger.error('Error creating user for %s: %s. Skipping this...' % (fedid, err))
                     #do next fedid
-                    continue     
+                    continue   
                 
             self.logger.info('After creating users, about to go through visit ids and copy files....') 
             #Now copy the files and set file permissions
@@ -243,16 +244,16 @@ class Plugin(object):
         The glassfish group has already been created.  It has 1 user (glassfish, uid = 50548)
         '''
         self.logger.info('Preparing to copy %i files for %s....' %( len(dfIDs), visitID))
-        #group files into blocks
-        for dfs in common.chunks(dfIDs, self.locationChunks): 
-            self.logger.debug("processing files: %s" % dfs)
+        #group files into blocks [l[i:i+n] for i in xrange(0, len(l), n)]
+        for dfs in self.chunks(dfIDs, self.locationChunks): 
+            self.logger.debug("processing files: %s" % dfs) #dfs is a String
             locations = [self.df_locations[fid] for fid in dfs if fid in self.df_locations.keys()]
-            self.logger.debug("Extracted file locations: %s" % locations)
+            #self.logger.debug("Extracted file locations: %s" % locations)
             for location in locations:                
                 #we will strip the '/dls' segment, the parent path including the 'dls' segment will be defined in the configuration file
                 tempPath = location[location.find('dls',0, len(location))+len('dls'):]          #/beamline/data/year/cm12167-3/location1/location2/file.dat
                 beamlinePath = self.destination + tempPath[0:tempPath.find('/',1,len(tempPath))] #dls + /beamline 
-                grpPath = self.destination + tempPath[:tempPath.find(visitID,0,len(tempPath))+len(visitID)]  #dls + /beamline/data/year/cm12167-3
+                grpPath = self.destination + tempPath[:tempPath.find(visitID.replace('_','-'),0,len(tempPath))+len(visitID)]  #dls + /beamline/data/year/cm12167-3
                 #subFolderPath = tempPath[tempPath.find(visitID,0,len(tempPath))+len(visitID):]  #/location1/location2/file.dat 
                 self.logger.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
                                            
@@ -336,3 +337,9 @@ class Plugin(object):
         except OSError, err:
             self.logger.error('Error creating user group(%s) : %s...' %(visitId,err))
             raise
+        
+    def chunks(self, l, n):
+        '''
+        Chunk a list into smaller subset of size n
+        '''
+        return [l[i:i+n] for i in xrange(0, len(l), n)]

@@ -28,7 +28,8 @@ class Plugin(object):
         self.dlsDefaultUser = 'glassfish' # both for os group and os user
         # common variable lists
         self.skippedDFids = []      #int
-        self.skippedVisitIds = []   #String    
+        self.skippedVisitIds = []   #String 
+        self.processedFiles = []    #int   
         # common variable maps        
         self.df_locations = {}  #dfId:icat.location  
         self.visitId_dfIds = {} #visitId:[difIds]
@@ -198,6 +199,8 @@ class Plugin(object):
         
         #create a report in the log
         self.logger.info("*******************IDS SCARF REPORT FOR TRANSFER REQUEST ID: %s" % str(self.request['id']))
+        self.logger.info("**********************Number of files transferred :")
+        self.logger.info("****************************** %i") % self.processedFiles
         self.logger.info("**********************Skipped visitIds : ")
         self.logger.info("****************************** %s : " % self.skippedVisitIds)
         self.logger.info("**********************Skipped datafiles : ")
@@ -244,46 +247,43 @@ class Plugin(object):
         The glassfish group has already been created.  It has 1 user (glassfish, uid = 50548)
         '''
         self.logger.info('Preparing to copy %i files for %s....' %( len(dfIDs), visitID))
-        #group files into blocks [l[i:i+n] for i in xrange(0, len(l), n)]
-        for dfs in self.chunks(dfIDs, self.locationChunks): 
-            self.logger.debug("processing files: %s" % dfs) #dfs is a String
-            locations = [self.df_locations[fid] for fid in dfs if fid in self.df_locations.keys()]
-            #self.logger.debug("Extracted file locations: %s" % locations)
-            for location in locations:                
-                #we will strip the '/dls' segment, the parent path including the 'dls' segment will be defined in the configuration file
-                tempPath = location[location.find('dls',0, len(location))+len('dls'):]          #/beamline/data/year/cm12167-3/location1/location2/file.dat
-                beamlinePath = self.destination + tempPath[0:tempPath.find('/',1,len(tempPath))] #dls + /beamline 
-                grpPath = self.destination + tempPath[:tempPath.find(visitID.replace('_','-'),0,len(tempPath))+len(visitID)]  #dls + /beamline/data/year/cm12167-3
-                #subFolderPath = tempPath[tempPath.find(visitID,0,len(tempPath))+len(visitID):]  #/location1/location2/file.dat 
-                self.logger.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
-                                           
-                #check if visitId folder exists, linux doesn't care if it it ends with '/' or not
-                #if os.path.exists(grpPath):
-                #    self.logger.warn("visit group folder already exists, will not recreate folder!" % grpPath)
-                source = "%s/%s" % (self.source, location)
-                destination = self.destination + tempPath
-                self.destination_dir = os.path.dirname(destination)
-                if not os.path.isdir(self.destination_dir):
-                    self.logger.debug("Creating directory %s" % self.destination_dir)
-                    os.makedirs(self.destination_dir)
+        locations = [self.df_locations[fid] for fid in dfIDs if fid in self.df_locations.keys()]
+        for location in locations:              
+            #we will strip the '/dls' segment, the parent path including the 'dls' segment will be defined in the configuration file
+            tempPath = location[location.find('dls',0, len(location))+len('dls'):]          #/beamline/data/year/cm12167-3/location1/location2/file.dat
+            beamlinePath = self.destination + tempPath[0:tempPath.find('/',1,len(tempPath))] #dls + /beamline 
+            grpPath = self.destination + tempPath[:tempPath.find(visitID.replace('_','-'),0,len(tempPath))+len(visitID)]  #dls + /beamline/data/year/cm12167-3
+            #subFolderPath = tempPath[tempPath.find(visitID,0,len(tempPath))+len(visitID):]  #/location1/location2/file.dat 
+            self.logger.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
+                                       
+            #check if visitId folder exists, linux doesn't care if it it ends with '/' or not
+            #if os.path.exists(grpPath):
+            #    self.logger.warn("visit group folder already exists, will not recreate folder!" % grpPath)
+            source = "%s/%s" % (self.source, location)
+            destination = self.destination + tempPath
+            self.destination_dir = os.path.dirname(destination)
+            if not os.path.isdir(self.destination_dir):
+                self.logger.debug("Creating directory %s" % self.destination_dir)
+                os.makedirs(self.destination_dir)
+        
+            self.logger.debug("Copying file %s -> %s" % (source, destination))
+            shutil.copy(source, destination) #will overwrite if exists
+            self.processedFiles += 1
             
-                self.logger.debug("Copying file %s -> %s" % (source, destination))
-                shutil.copy(source, destination) #will overwrite if exists
-                
-                #set permission, assume that root dls folder is already created and has permission set
-                if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,self.dlsDefaultUser,beamlinePath)) == 0:
-                    self.logger.info("setting glassfish permission recursively for %s path..." % beamlinePath)
-                    if os.system("chmod 775 %s" % beamlinePath) != 0:
-                        self.logger.warn('Failed to set permission on %s to 775' % beamlinePath)
-                else:
-                    self.logger.warn("Failed to set glassfish permission recursively for %s path!!!" % beamlinePath )   
-                #now try and set the visit group permission
-                if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,visitID,grpPath)) == 0:
-                    self.logger.info("set %s permission recursively for %s path..." % (visitID,grpPath))
-                    if os.system("chmod 750 %s" % grpPath) != 0:
-                        self.logger.warn('Failed to set permission on %s to 750' % grpPath)
-                else:
-                    self.logger.warn("Failed to set %s permission recursively for %s path!!!" % (visitID,grpPath))   
+            #set permission, assume that root dls folder is already created and has permission set
+            if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,self.dlsDefaultUser,beamlinePath)) == 0:
+                self.logger.info("setting glassfish permission recursively for %s path..." % beamlinePath)
+                if os.system("chmod 775 %s" % beamlinePath) != 0:
+                    self.logger.warn('Failed to set permission on %s to 775' % beamlinePath)
+            else:
+                self.logger.warn("Failed to set glassfish permission recursively for %s path!!!" % beamlinePath )   
+            #now try and set the visit group permission
+            if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,visitID,grpPath)) == 0:
+                self.logger.info("set %s permission recursively for %s path..." % (visitID,grpPath))
+                if os.system("chmod 750 %s" % grpPath) != 0:
+                    self.logger.warn('Failed to set permission on %s to 750' % grpPath)
+            else:
+                self.logger.warn("Failed to set %s permission recursively for %s path!!!" % (visitID,grpPath))
 
     def configLdap(self):
         '''

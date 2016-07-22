@@ -261,7 +261,7 @@ class Plugin(object):
             self.logger.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
                                        
             #check if visitId folder exists, linux doesn't care if it it ends with '/' or not
-            source = "%s/%s" % (self.source, location)
+            source = "%s%s" % (self.source, location)
             destination = self.destination + tempPath
             self.destination_dir = os.path.dirname(destination)
             if not os.path.isdir(self.destination_dir):
@@ -269,8 +269,11 @@ class Plugin(object):
                 os.makedirs(self.destination_dir)
         
             self.logger.debug("Copying file %s -> %s" % (source, destination))
-            shutil.copy(source, destination) #will overwrite if exists
-            self.numFilesCopied += 1
+            try:
+                shutil.copy(source, destination) #will overwrite if exists
+                self.numFilesCopied += 1
+            except Exception, err:
+                self.logger.warn('Error copying file from %s to %s: %s. Skipping this.....' %(source, destination, err))
             
             #set permission, assume that root dls folder is already created and has permission set
             if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,self.dlsDefaultUser,beamlinePath)) == 0:

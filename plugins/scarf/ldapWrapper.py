@@ -44,6 +44,13 @@ class LdapProxy(object):
         try:
             self.connection = ldap.initialize(self.config.get('scarf','LDAP_URL'))
             self.connection.set_option(ldap.OPT_PROTOCOL_VERSION, ldap.VERSION3)
+            #21July2016 added TLS
+            #self.connection.set_option(ldap.OPT_X_TLS,ldap.OPT_X_TLS_DEMAND)
+            #self.connection.set_option(ldap.OPT_REFERRALS, 0)
+            #self.connection.set_option(ldap.OPT_X_TLS_DEMAND, True)
+            #self.connection.set_option(ldap.OPT_X_TLS_CACERTDIR,'/etc/grid-security/certificates')
+            #self.connection.start_tls_s()
+            #
             self.connection.set_option(ldap.OPT_NETWORK_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for connecting to server operations
             self.connection.set_option(ldap.OPT_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for ldap operations
             self.connection = ldap.ldapobject.ReconnectLDAPObject(self.config.get('scarf','LDAP_URL'),trace_level=1,retry_max=3)            
@@ -51,7 +58,7 @@ class LdapProxy(object):
             self.connected = True
             self.logger.info("Successfully bound to %s" % self.config.get('scarf','LDAP_URL'))
             
-        except (ldap.SERVER_DOWN, ldap.INVALID_CREDENTIALS, ldap.INVALID_DN_SYNTAX), err:
+        except (ldap.LDAPError), err:
             self.logger.error("Error connecting: %s" % err)
             raise   #push up    
         

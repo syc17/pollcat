@@ -26,10 +26,11 @@ class Plugin(object):
         self.source = self.config.get('scarf','DATA_SOURCE')
         self.locationChunks = int(self.config.get('scarf', 'LOCATION_CHUNKS'))
         self.dlsDefaultUser = 'glassfish' # both for os group and os user
+         
+        self.numFilesCopied = 0
         # common variable lists
         self.skippedDFids = []      #int
-        self.skippedVisitIds = []   #String 
-        self.processedFiles = []    #int   
+        self.skippedVisitIds = []   #String
         # common variable maps        
         self.df_locations = {}  #dfId:icat.location  
         self.visitId_dfIds = {} #visitId:[difIds]
@@ -99,7 +100,6 @@ class Plugin(object):
             
             self.logger.info("About to process visitId %s and synchronise LDAP entries...." % visit_id)
             
-            #users = self.visitId_users(visit_id)             
             if users is None:
                 self.logger.warn('No icat users for visit_id(%s)' % visit_id)   
                 continue   
@@ -123,9 +123,8 @@ class Plugin(object):
             #check if this group exists in ldapWrapper, if yes, don't need to re-create it
             try:
                 if self.proxy.connected is False:
-                    self.proxy.connect()
-                #ldap_grp_memUIDs = {} #Dict[dn:uids]            
-                ldap_grp_memUIDs = self.proxy.getGroup(ldap_grpName) # could be None if group not found.  
+                    self.proxy.connect()            
+                ldap_grp_memUIDs = self.proxy.getGroup(ldap_grpName) # #Dict[dn:uids] could be None if group not found.  
                 
                 if ldap_grp_memUIDs is None:
                     #create the group, can add grp members later
@@ -157,9 +156,7 @@ class Plugin(object):
                 continue
             
         #we are done with LDAP now
-        self.proxy.disconnect() 
-        
-        #!!!!!!!!!!!!!!log the skipped items!!!!!!!!!!!!!!!!! 
+        self.proxy.disconnect()         
         
         #create the OS group/users and copy files
         for visitGroup, users in self.visitId_users.iteritems():
@@ -194,17 +191,20 @@ class Plugin(object):
                 continue
             else:
                 # filter out the skipped files as they have no icat.location
-                #[dict1[x] for x in dict1.keys() if x not in skiplist]
                 self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  
         
         #create a report in the log
         self.logger.info("*******************IDS SCARF REPORT FOR TRANSFER REQUEST ID: %s" % str(self.request['id']))
         self.logger.info("**********************Number of files transferred :")
-        self.logger.info("****************************** %i") % self.processedFiles
+        #has to guard against none type for instance variable used in methods
+        if self.numFilesCopied is None or self.numFilesCopied == 0:
+            self.logger.info("****************************** 0 ")
+        else:
+            self.logger.info("****************************** %i " % self.numFilesCopied)
         self.logger.info("**********************Skipped visitIds : ")
-        self.logger.info("****************************** %s : " % self.skippedVisitIds)
+        self.logger.info("****************************** %s " % self.skippedVisitIds)
         self.logger.info("**********************Skipped datafiles : ")
-        self.logger.info("****************************** %s : " % self.skippedDFids)
+        self.logger.info("****************************** %s " % self.skippedDFids)
     
     def createuser(self, group, fedid): 
         '''
@@ -257,8 +257,6 @@ class Plugin(object):
             self.logger.debug('split file location(%s) into group folder(%s) and beamline folder(%s) paths...' % (location, grpPath, beamlinePath))                
                                        
             #check if visitId folder exists, linux doesn't care if it it ends with '/' or not
-            #if os.path.exists(grpPath):
-            #    self.logger.warn("visit group folder already exists, will not recreate folder!" % grpPath)
             source = "%s/%s" % (self.source, location)
             destination = self.destination + tempPath
             self.destination_dir = os.path.dirname(destination)
@@ -268,7 +266,7 @@ class Plugin(object):
         
             self.logger.debug("Copying file %s -> %s" % (source, destination))
             shutil.copy(source, destination) #will overwrite if exists
-            self.processedFiles += 1
+            self.numFilesCopied += 1
             
             #set permission, assume that root dls folder is already created and has permission set
             if os.system("chown -R %s:%s %s" %(self.dlsDefaultUser,self.dlsDefaultUser,beamlinePath)) == 0:

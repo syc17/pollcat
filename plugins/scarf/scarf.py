@@ -88,7 +88,7 @@ class Plugin(object):
         #finished processing all files in the request.  We have the users associated with the visitId plus each file's location   
         self.logger.info('Finished processing all files in the request.  About to process LDAP entries....')
             
-        for vId, users in self.visitId_users.iteritems():
+        for vId in self.visitId_users.keys():
             '''
             create the LDAP authorisation structure, LSF acct 
             '''
@@ -97,6 +97,7 @@ class Plugin(object):
                 continue
             
             visit_id = vId 
+            users = self.visitId_users[vId]
             
             self.logger.info("About to process visitId %s and synchronise LDAP entries...." % visit_id)
             
@@ -110,8 +111,11 @@ class Plugin(object):
             #icat_grpMems = {user.name : self.getUid(user, visit_id) for user in users} #fedid:uid
             #check if the requester has scarf a/c
             try:
-                if icat_grpMems[self.request['userName']] is None: #assume requester is a member of the investigationUsers: DLS has no public data.
-                    icat_grpMems[self.request['userName']] = self.proxy.addUser(self.request['userName']) #update dictionary
+                if self.request['userName'] not in icat_grpMems.keys():
+                    self.logger.debug("self.request['userName'] not currently contained in icat_grpMems...")
+                else:
+                    if icat_grpMems[self.request['userName']] is None: #assume requester is a member of the investigationUsers: DLS has no public data.
+                        icat_grpMems[self.request['userName']] = self.proxy.addUser(self.request['userName']) #update dictionary
                     
             except (ldapWrapper.ldap.LDAPError, OSError), err:
                 #self.skippedVisitIds.append(visit_id)
@@ -310,6 +314,7 @@ class Plugin(object):
         if fedid is None:
             self.logger.debug('VisitId(%s) : failed to extract fedid from user(%s).  Skipping this user... ' %(vId, user.name))
         else:
+            self.logger.debug('VisitId(%s) : Extracted fedid(%s) from user... ' %(vId, user.name))
             try:
                 if self.proxy.connected == False:
                     self.proxy.connect()

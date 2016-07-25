@@ -24,7 +24,6 @@ class Plugin(object):
         self.config.read('plugins/scarf/scarf.config')        
         self.destination = self.config.get('scarf','DATA_DESTINATION')        
         self.source = self.config.get('scarf','DATA_SOURCE')
-        self.locationChunks = int(self.config.get('scarf', 'LOCATION_CHUNKS'))
         self.dlsDefaultUser = 'glassfish' # both for os group and os user
          
         self.numFilesCopied = 0

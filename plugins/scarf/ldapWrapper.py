@@ -42,14 +42,17 @@ class LdapProxy(object):
         Open a connection and bind to the ldap server        
         '''
         try:
+            if 'LDAPTLS_CACERTDIR' not in os.environ:
+                os.environ['LDAPTLS_CACERTDIR'] = self.config.get('scarf','LDAPTLS_CACERTDIR')
+            
             self.connection = ldap.initialize(self.config.get('scarf','LDAP_URL'))
             self.connection.set_option(ldap.OPT_PROTOCOL_VERSION, ldap.VERSION3)
             #21July2016 added TLS
             #self.connection.set_option(ldap.OPT_X_TLS,ldap.OPT_X_TLS_DEMAND)
-            #self.connection.set_option(ldap.OPT_REFERRALS, 0)
-            #self.connection.set_option(ldap.OPT_X_TLS_DEMAND, True)
-            #self.connection.set_option(ldap.OPT_X_TLS_CACERTDIR,'/etc/grid-security/certificates')
-            #self.connection.start_tls_s()
+            self.connection.set_option(ldap.OPT_REFERRALS, 0)
+            self.connection.set_option(ldap.OPT_X_TLS_DEMAND, True)
+            self.connection.set_option(ldap.OPT_X_TLS_CACERTDIR,self.config.get('scarf','LDAPTLS_CACERTDIR'))
+            self.connection.start_tls_s()
             #
             self.connection.set_option(ldap.OPT_NETWORK_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for connecting to server operations
             self.connection.set_option(ldap.OPT_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for ldap operations
@@ -283,7 +286,7 @@ class LdapProxy(object):
                 #self.logger.debug('Next %s for %s is %s' %(attribute[0],dn,currentId))
                 nextId = int(currentId) + 1 
                 #need to update the ldap value to the next one.  Replace the attribute with the values list
-                self.logger.debug('%i try at updating the %s number to %i' %(index, attribute[0], nextId))
+                self.logger.debug('%i try at updating the %s number to %i' %(index, attribute, nextId))
                 try:                    
                     #mock transaction: first delete, then add
                     #assuming that if currentId not exist, MOD_DELETE will throw NO_SUCH_ATTRIBUTE error and abort before add
@@ -291,18 +294,18 @@ class LdapProxy(object):
                     self.connection.modify_s(dn, mod_spec)
                     return nextId
                 except ldap.NO_SUCH_ATTRIBUTE, err:
-                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,err))
+                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute,dn,nextId,err))
                     continue
                 except ldap.STRONG_AUTH_REQUIRED, es:
-                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,es))
+                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute,dn,nextId,es))
                     raise
                 except Exception, e:
                     #may need to continue, but see if the first except traps the required condition
-                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute[0],dn,nextId,str(e)))
+                    self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute,dn,nextId,str(e)))
                     raise RuntimeError
             
             if index == 4:  #python does not increment the index if limit reached
-                raise IndexError('Failed to update the %s for %s with the next value %i after %i try!' %(attribute[0],dn,nextId,index+1))
+                raise IndexError('Failed to update the %s for %s with the next value %i after %i try!' %(attribute,dn,nextId,index+1))
 
         except (RuntimeError, ValueError,ldap.LDAPError, IndexError), error_message:
             self.logger.error("Error getting the next %s id: %s " %(attribute, error_message))

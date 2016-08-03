@@ -28,7 +28,7 @@ class LdapProxy(object):
         self.baseUserDN = self.config.get('scarf','LDAP_BASE_USER_DN')
         self.baseGrpDN = self.config.get('scarf','LDAP_BASE_GRP_DN')
         self.userAttrs = self.getAttribute('LDAP_USER_ATTRS') #can be none
-        self.grpAttrs = self.config.get('scarf','LDAP_GPR_ATTRS') 
+        self.grpAttrs = self.getAttribute('LDAP_GPR_ATTRS') 
         self.addOU = self.config.get('scarf','LDAP_ADD_OU')
         self.gidAttribute = self.config.get('scarf','LDAP_ADD_GRP_ID_ATTR')
         self.uidAttribute = self.config.get('scarf','LDAP_ADD_USER_ID_ATTR')
@@ -45,18 +45,18 @@ class LdapProxy(object):
             if 'LDAPTLS_CACERTDIR' not in os.environ:
                 os.environ['LDAPTLS_CACERTDIR'] = self.config.get('scarf','LDAPTLS_CACERTDIR')
             
-            self.connection = ldap.initialize(self.config.get('scarf','LDAP_URL'))
+            
+            self.connection = ldap.ldapobject.ReconnectLDAPObject(self.config.get('scarf','LDAP_URL'),trace_level=1,retry_max=3)    
             self.connection.set_option(ldap.OPT_PROTOCOL_VERSION, ldap.VERSION3)
             #21July2016 added TLS
-            #self.connection.set_option(ldap.OPT_X_TLS,ldap.OPT_X_TLS_DEMAND)
+            self.connection.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
             self.connection.set_option(ldap.OPT_REFERRALS, 0)
             self.connection.set_option(ldap.OPT_X_TLS_DEMAND, True)
             self.connection.set_option(ldap.OPT_X_TLS_CACERTDIR,self.config.get('scarf','LDAPTLS_CACERTDIR'))
             self.connection.start_tls_s()
             #
             self.connection.set_option(ldap.OPT_NETWORK_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for connecting to server operations
-            self.connection.set_option(ldap.OPT_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for ldap operations
-            self.connection = ldap.ldapobject.ReconnectLDAPObject(self.config.get('scarf','LDAP_URL'),trace_level=1,retry_max=3)            
+            self.connection.set_option(ldap.OPT_TIMEOUT, int(self.config.get('scarf','LDAP_TIMEOUT'))) #for ldap operations        
             self.connection.simple_bind(self.config.get('scarf','LDAP_USER'), self.config.get('scarf','LDAP_PASSWORD'))
             self.connected = True
             self.logger.info("Successfully bound to %s" % self.config.get('scarf','LDAP_URL'))
@@ -83,7 +83,6 @@ class LdapProxy(object):
             
             #handle the result
             dn, attributes = result[0]
-            #return {attributes['gidNumber'][0]:attributes['memberUid']}
             return {dn:attributes['memberUid']}
         
         except (ValueError, ldap.LDAPError), error_message:

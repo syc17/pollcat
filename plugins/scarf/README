@@ -1,0 +1,1 @@
+The lsfWrapper uses the LSF command line interface.  Pollcat needs to bootstrap the LSF environment by running the configuration script /etc/profile.modules on application start up.

@@ -224,44 +224,44 @@ class Plugin(object):
         self.logger.info("**********************Skipped datafiles : ")
         self.logger.info("****************************** %s " % self.skippedDFids)
     
-    def createuser(self, group, fedid): 
+    def createuser(self, group, uid): 
         '''
         Create a local file user account if not exist and add a supplementary group to the account
         
         '''
         try:
-            self.createPrimaryUser(fedid)                
+            self.createPrimaryUser(uid)                
             #add supplementary group
-            self.addUserSupGrp(group, fedid)                
+            self.addUserSupGrp(group, uid)                
         except OSError, err:
-            self.logger.error('Error creating %s with group(%s) : %s...' % (fedid, group, err))
+            self.logger.error('Error creating %s with group(%s) : %s...' % (uid, group, err))
             raise
         
-    def createPrimaryUser(self, fedid): 
+    def createPrimaryUser(self, uid): 
         '''
         Create a local file user account under a default primary group      
         '''
-        if re.match('^[\w-]+$', fedid) == None:
-            raise OSError("%s contains non-alphanumeric characters" % fedid)
+        if re.match('^[\w-]+$', uid) == None:
+            raise OSError("%s contains non-alphanumeric characters" % uid)
         
-        if os.system("id -u %s" % fedid) != 0:               
+        if os.system("id -u %s" % uid) != 0:               
             #user not exist, create it. -M do not create home directory
-            if os.system("useradd %s -g %s -M" % (fedid, self.dlsDefaultGroup)) == 0:
-                self.logger.info("Created new local user account for: %s" % fedid)
+            if os.system("useradd %s -g %s -M" % (uid, self.dlsDefaultGroup)) == 0:
+                self.logger.info("Created new local user account for: %s" % uid)
             else:
-                raise OSError("Unable to create local user account for: %s" % fedid)
+                raise OSError("Unable to create local user account for: %s" % uid)
         else:
-            self.logger.info("Local user(%s) already exists ...." % fedid)
+            self.logger.info("Local user(%s) already exists ...." % uid)
             
         
-    def addUserSupGrp(self, group, fedid):
+    def addUserSupGrp(self, group, uid):
         '''
         Add user to a supplementary group
         '''
-        if os.system("usermod -a -G %s %s" %(group, fedid)) == 0:                    
-            self.logger.info("Added user(%s) to supplementary group(%s)...." % (fedid, group))
+        if os.system("usermod -a -G %s %s" %(group, uid)) == 0:                    
+            self.logger.info("Added user(%s) to supplementary group(%s)...." % (uid, group))
         else:
-            raise OSError("Unable to add user(%s) to supplementary group(%s)!" %(fedid, group))
+            raise OSError("Unable to add user(%s) to supplementary group(%s)!" %(uid, group))
         
     
     def copydata(self, visitID, dfIDs):

@@ -97,7 +97,7 @@ class LdapProxy(object):
         Check if user has a scarf account and the correct scarf resource allocated.
         If the user exists, the user ldap uid is returned.     
         '''
-        term = '(&(name=%s)(objectClass=posixAccount))' % fedid #assertion syntax, operator in front
+        term = '(&(name=%s)(objectClass=posixAccount))' % fedid.encode('utf8') #assertion syntax, operator in front
         scope = ldap.SCOPE_SUBTREE
         try:
             #userAttrs can be None
@@ -155,23 +155,23 @@ class LdapProxy(object):
             else:
                 #compile CN
                 baseNumPart = 10**(8-len(self.userPrefix))
-                cn = self.uidAttribute + str(newUidNum % baseNumPart).zfill(8-len(self.userPrefix)) #e.g. fac00058
-                self.logger.debug('Compiled CN(%s) for user($s)....' %(cn, fedid))
+                cn = self.userPrefix + str(newUidNum % baseNumPart).zfill(8-len(self.userPrefix)) #e.g. fac00058
+                self.logger.debug('Compiled CN(%s) for user(%s)....' %(cn, fedid))
                 descs = self.scarfDescs # a list                
                 dn = 'cn=' + cn + ',' + baseUserDN 
                 homeDir = self.homeDir + '/' + cn 
                 #list of list of attribute:valueList               
                 add_record = [
-                     ('objectclass', ['top','inetOrgPerson','posixAccount','extensibleObject']),
-                     ('name',[fedid]),
-                     ('description',descs),
-                     ('cn', [cn] ),
-                     ('sn', [cn]),
-                     ('uid',[cn]),
-                     ('uidNumber', [newUidNum]),
-                     ('loginShell',['/bin/bash']),
-                     ('gidNumber',[self.DLS_gid]),  #all dls user belong to this primary group
-                     ('homeDirectory',[homeDir]) 
+                    ('objectclass', ['top','inetOrgPerson','posixAccount','extensibleObject']),
+                    ('name',[fedid.encode('utf8')]), #icat uses unicode, needs to convert back to utf8
+                    ('description',descs),
+                    ('cn', [cn]),
+                    ('sn', [cn]),
+                    ('uid',[cn]),
+                    ('uidNumber', [str(newUidNum)]),
+                    ('loginShell',['/bin/bash']),
+                    ('gidNumber',[self.DLS_gid]),  #all dls user belong to this primary group
+                    ('homeDirectory',[homeDir]) 
                 ]                
                 self.connection.add_s(dn, add_record)
                 
@@ -191,6 +191,9 @@ class LdapProxy(object):
             #catch all errors, includes ldap.ALREADY_EXISTS. ldap.INSUFFICIENT_ACCESS
             self.logger.error('Error trying to add a ldap user(%s): %s....'% (fedid, err))
             raise
+        except Exception, e:
+            self.logger.error('Other error trying to add a ldap user(%s): %s....'% (fedid, e))
+            raise
     
         
     def addGroup(self, grpName):
@@ -208,7 +211,7 @@ class LdapProxy(object):
                 #list of list of attribute:valueList               
                 add_record = [
                      ('objectclass', ['top','posixGroup']),
-                     ('cn', [grpName] ),
+                     ('cn', [grpName.encode('utf8')] ),
                      ('gidNumber', [newGidNum] ),
                 ]                
                 self.connection.add_s(dn, add_record)
@@ -225,7 +228,8 @@ class LdapProxy(object):
         '''
         Extract the scarf descriptions list from the configuration object
         '''
-        desc = self.config.get('scarf','LDAP_ADD_USER_DESC') #self.scarfDescs
+        #cleanedDesc = []
+        desc = self.config.get('scarf','LDAP_ADD_USER_DESC') #String, self.scarfDescs
         descriptions = desc.split(',')
         for index in range(len(descriptions)):
             d1 = descriptions[index].strip()
@@ -235,6 +239,7 @@ class LdapProxy(object):
                 descriptions[index] = d1 
                 
         return descriptions     
+
      
     def getUserAttrs(self):
         '''
@@ -334,7 +339,7 @@ class LdapProxy(object):
     def addGroupMembers(self, dn, uids):
         '''
         Add the list of member UIDs to a ldap group
-        '''        
+        '''      
         try:
             mod_desc = [(ldap.MOD_ADD, 'memberUid', uids)]
             self.connection.modify_s(dn, mod_desc)           
@@ -342,3 +347,15 @@ class LdapProxy(object):
         except ldap.LDAPError, err:
             self.logger.error('Error adding new members to ldap group dn(%s): %s!!!' %(dn, err))
             raise
+        
+    def encodeList(self, l):
+        '''
+        Format items in a list to utf-8
+        '''
+        cleaned = []
+        
+        for item in l:
+            cleaned.append(item.encode('utf-8'))
+        
+        return cleaned
+        

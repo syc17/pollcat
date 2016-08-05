@@ -36,6 +36,7 @@ class Plugin(object):
         self.df_locations = {}  #dfId:icat.location  
         self.visitId_dfIds = {} #visitId:[difIds]
         self.visitId_users = {} #visitId:[icat.user]
+        self.visitId_uids = {}  #visitId:{scarf.uid}
         self.requester = {}     #requester info
 
     def run(self):  
@@ -63,12 +64,13 @@ class Plugin(object):
             self.requeser['uid'] = uid    
         
         #create linux account for requeser if not exist
-        self.createPrimaryUser(self.requester['fedid'])
+        #self.createPrimaryUser(self.requester['fedid'])
+        self.createPrimaryUser(self.requester['uid'])
         
         #process the request
         for dfId in self.datafileIds:  #dfId is an int and = icat.datafile.id  
             '''
-            First get info on the each file's visit-id, location and associated users
+            First get info on the each file's visit-id, location and associated uids
             we only need to create a visit-id group in LDAP and the OS once
             '''        
             try:    
@@ -89,22 +91,22 @@ class Plugin(object):
             
             if visitId not in self.visitId_users:
                 '''
-                only query icat if we have not retrieved the users for this visitId
+                only query icat if we have not retrieved the uids for this visitId
                 '''
                 try:
                     '''
-                    get the users associated with the visitId. Capitalise visitId.
+                    get the uids associated with the visitId. Capitalise visitId.
                     '''
-                    users = icatClient.getInstance().search("SELECT u FROM User u JOIN u.investigationUsers iu JOIN iu.investigation inv WHERE inv.visitId = '%s'" % visitId.upper())
-                    if len(users) > 0:
-                        self.visitId_users[visitId] = users
+                    uids = icatClient.getInstance().search("SELECT u FROM User u JOIN u.investigationUsers iu JOIN iu.investigation inv WHERE inv.visitId = '%s'" % visitId.upper())
+                    if len(uids) > 0:
+                        self.visitId_users[visitId] = uids
                     else:
                         self.visitId_users[visitId] = None
-                        self.logger.debug('No users retrieved for visitId = %s' % visitId)
+                        self.logger.debug('No uids retrieved for visitId = %s' % visitId)
                          
                 except (ValueError, ICATError), err:
                     self.skippedVisitIds.append(visitId)
-                    self.logger.error('Error %s retrieving users by visitId(%s) ....Skipping this visitId' %(err, str(self.visitId)))
+                    self.logger.error('Error %s retrieving uids by visitId(%s) ....Skipping this visitId' %(err, str(self.visitId)))
                     continue
         #finished processing all files in the request.  We have the users associated with the visitId plus each file's location   
         self.logger.info('Finished processing all files in the request.  About to process LDAP entries....')
@@ -117,18 +119,21 @@ class Plugin(object):
                 self.logger.warn('Not processing SCARF accounts for visitId(%s) as it is in the skipped list!' %vId)
                 continue            
              
-            users = self.visitId_users[vId]
+            uids = self.visitId_users[vId]
             
             self.logger.info("About to process visitId %s and synchronise LDAP entries...." % vId)
             
-            if users is None:
-                self.logger.warn('No icat users for visit_id(%s)' % vId)   
+            if uids is None:
+                self.logger.warn('No icat uids for visit_id(%s)' % vId)   
                 continue   
-            #create a new map of filtered users' fedid:uid (or uid=None for user w/o a scarf a/c).  Assume that there will always be icat investigationUsers
+            #create a new map of filtered uids' fedid:uid (or uid=None for user w/o a scarf a/c).  Assume that there will always be icat investigationUsers
             #python 2.6 syntax
-            icat_grpMems = dict((user.name, self.getUid(user, vId)) for user in users) #fedid:uid            
+            icat_grpMems = dict((user.name, self.getUid(user, vId)) for user in uids) #fedid:uid            
             #python 2.7 syntax
-            #icat_grpMems = {user.name : self.getUid(user, visit_id) for user in users} #fedid:uid
+            #icat_grpMems = {user.name : self.getUid(user, visit_id) for user in uids} #fedid:uid
+            
+            #5Aug2016 OS a/s needs to use scarf uid as identifier
+            self.visitId_uids[vId] = icat_grpMems.values #visitId:uids
             
             ldap_grpName = vId.replace('-','_') #swap all - to _
             #check if this group exists in ldap, if yes, don't need to re-create it
@@ -140,10 +145,10 @@ class Plugin(object):
                 if ldap_grp_memUIDs is None:
                     #create the group, can add grp members later
                     dn = self.proxy.addGroup(ldap_grpName) #gidNum is an int
-                    # add all the uids to ldap group a/c, we only add users who have a scarf account
+                    # add all the uids to ldap group a/c, we only add uids who have a scarf account
                     self.proxy.addGroupMembers(dn, [x for x in icat_grpMems.values() if x is not None])                    
                 
-                else: # check if we need to add users to the ldap group, we do no remove existing ldap grp members!!!
+                else: # check if we need to add uids to the ldap group, we do no remove existing ldap grp members!!!
                     uidsToAdd = list(set([x for x in icat_grpMems.values() if x is not None])).difference(ldap_grp_memUIDs.values()) #empty list returned if all included
                     if uidsToAdd:   #if list is not empty
                         self.proxy.addGroupMembers(ldap_grp_memUIDs.key()[0], uidsToAdd)                        
@@ -151,7 +156,7 @@ class Plugin(object):
                         self.logger.debug('No new members to add to ldap group(%s)...' %ldap_grpName)                        
                  
                 #check if LSF group exists and get a list of the existing members, lsf group name = 'diag_' + ldap group cn, add scarf uids as required
-                lsf_grpName = self.lsfGrpPrefix + vId # e.g. diag_mt8618-8
+                lsf_grpName = self.lsfGrpPrefix + ldap_grpName # e.g. diag_mt8618_8
                 self.logger.debug('About to process lsf group(%s)' % lsf_grpName)
                 
                 lsf_grpMems = lsfClient.checkGroup(lsf_grpName)
@@ -170,20 +175,19 @@ class Plugin(object):
                         
             except Exception, err:
                 #skip this one 
-                #self.skippedVisitIds.append(visit_id)                
-                #self.logger.error('Error processing visit(%s): %s.  Skipping this.....' %(visit_id, err))
-                self.logger.error('Error processing visit(%s): %s.....' %(vId, err))
+                self.skippedVisitIds.append(vId)                
+                self.logger.error('Error processing visit(%s): %s.  Skipping this.....' %(vId, err))
+                #self.logger.error('Error processing visit(%s): %s.....' %(vId, err))
                 continue            
             
         #we are done with LDAP now
         self.proxy.disconnect() 
                 
-        #create the OS group/users and copy files
-        for visitGroup, users in self.visitId_users.iteritems():
-            #we will create the file structure anyway even if something has gone wrong in managing the Scarf account
-            #if(visitGroup in self.skippedVisitIds):
-            #    self.logger.info("VisitID(%s) is in the skipped file, will skip creating local users..." % visitGroup)
-            #    continue                     
+        #create the OS group/uids and copy files
+        for visitGroup, uids in self.visitId_uids.iteritems():
+            if(visitGroup in self.skippedVisitIds):
+                self.logger.info("VisitID(%s) is in the skipped file, will skip creating local uids..." % visitGroup)
+                continue                     
             group = visitGroup.replace('-','_') #swap all - to _            
             
             try:
@@ -194,24 +198,18 @@ class Plugin(object):
                 #do next visitGroup
                 continue
             
-            fedids = [user.name for user in users]
-            for fedid in fedids:                
+            for uid in uids:                
                 try:
-                    self.createuser(group, fedid)                 
+                    self.createuser(group, uid)                 
                 except OSError, err:   
-                    self.logger.error('Error creating user for %s: %s. Skipping this...' % (fedid, err))
-                    #do next fedid
+                    self.logger.error('Error creating user for %s: %s. Skipping this...' % (uid, err))
+                    #do next uid
                     continue   
                 
-            self.logger.debug('After creating users, about to go through visit ids and copy files....') 
-            #Now copy the files and set file permissions
-            #no point in processing it if we failed to get icat.location
-            if visitGroup in self.skippedVisitIds:
-                self.logger.warn('Skip copying files for %s as we had errors creating the user group....' % visitGroup)
-                continue
-            else:
-                # filter out the skipped files as they have no icat.location
-                self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  
+            self.logger.debug('After creating uids, about to go through visit ids and copy files....') 
+            #Now copy the files and set file permissions            
+            # filter out the skipped files as they have no icat.location
+            self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  
         
         #create a report in the log
         self.logger.info("*******************IDS SCARF REPORT FOR TRANSFER REQUEST ID: %s" % str(self.request['id']))

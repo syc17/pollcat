@@ -1,1 +1,3 @@
+The ldapWrapper uses TLS and needs an environment variable (LDAPTLS_CACERTDIR) to point to the certificate folder.  This should be set on application start up.
 The lsfWrapper uses the LSF command line interface.  Pollcat needs to bootstrap the LSF environment by running the configuration script /etc/profile.modules on application start up.
+ 

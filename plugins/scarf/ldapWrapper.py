@@ -207,12 +207,12 @@ class LdapProxy(object):
             if newGidNum is None:
                 raise ValueError('Failed to retrieve new gid number from ldap, cannot add group(%s)!' % grpName)
             else:
-                dn = 'cn=' + grpName + ',' + baseGrpDN 
+                dn = 'cn=' + grpName.encode('utf8') + ',' + baseGrpDN 
                 #list of list of attribute:valueList               
                 add_record = [
                      ('objectclass', ['top','posixGroup']),
                      ('cn', [grpName.encode('utf8')] ),
-                     ('gidNumber', [newGidNum] ),
+                     ('gidNumber', [str(newGidNum)]),
                 ]                
                 self.connection.add_s(dn, add_record)
                 #return newGidNum
@@ -341,8 +341,11 @@ class LdapProxy(object):
         Add the list of member UIDs to a ldap group
         '''      
         try:
-            mod_desc = [(ldap.MOD_ADD, 'memberUid', uids)]
-            self.connection.modify_s(dn, mod_desc)           
+            if uids:
+                mod_desc = [(ldap.MOD_ADD, 'memberUid', uids)]
+                self.connection.modify_s(dn, mod_desc)
+            else: #there should always be the requester, so this should not happen at runtime
+                raise ValueError('No uids to add as group members to ldap group(%s)!' % dn)
             
         except ldap.LDAPError, err:
             self.logger.error('Error adding new members to ldap group dn(%s): %s!!!' %(dn, err))

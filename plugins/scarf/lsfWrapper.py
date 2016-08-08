@@ -21,27 +21,29 @@ class LsfProxy(object):
         Constructor
         '''
         self.logger = logger
-        self.config = config
-        self.lsfParentGroup = self.config.get('scarf','LSF_PARENT_GRP') #default parent group: diamond
-        self.lsfGrpPrefix = self.config.get('scarf','LSF_GRP_PREFIX') #lsf grp pattern <LSF_GRP_PREFIX><icat visitId>, e.g. diag_mt8618-8  
+        self.config = config 
         
     def checkGroup(self, grpName):
         '''
         Check if a LSF group with the provided name already exists.
         If exists, returns a list of the members.  Else, return none.
         '''
-        cmd = 'bugroup -w %s' %grpName
+        cmd = 'bugroup -w %s' % grpName
+        self.logger.debug('lsf command for checkgroup : %s' % cmd)
         
         try:
-            proc = Popen(shlex.split(cmd), stdout=PIPE, stderr=PIPE)
+            proc = Popen(shlex.split(cmd.encode('ascii')), stdout=PIPE, stderr=PIPE) #python 2.6 shlex bug
             result = proc.communicate()
             rc = proc.wait()
             
             if rc == 0:
                 #parse the input for the list of members.  There should be at least 1 member 
-                return self.parseMembers(grpName, result.split())                
-            else:
-                raise ValueError(result)            
+                l = list(result)                
+                return self.parseMembers(grpName, l[0].split())                
+            elif rc == 255 and 'No such user/host group' in result[1]:
+                return
+            else: 
+                raise ValueError(result[1])            
 #                   
         except (OSError, ValueError), err:
             self.logger.error('Error checking LSF Group(%s): %s' % (grpName, err))
@@ -56,14 +58,15 @@ class LsfProxy(object):
         '''
         cmd ='bconf create usergroup=%s "GROUP_MEMBER=%s"' % (grpName, ' '.join(grpMembers))
         #has to use cmd as a String as grpMembers may contain whitespaces
+        self.logger.debug('addGroup command : %s ' % cmd)
         try:
-            proc = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
+            proc = Popen(cmd.encode('ascii'), stdout=PIPE, stderr=PIPE, shell=True)
             result = proc.communicate()
             rc = proc.wait() #0 is OK, 1 is error, result contains errmsg
             if rc == 0:
                 self.logger.info('Added LSF group(%s) with members(%s)' % (grpName, grpMembers))
             else:                
-                raise ValueError(result)                       
+                raise ValueError(result[1])                       
             
         except (OSError, ValueError), err:
             self.logger.error('Error adding LSF Group(%s): %s' % (grpName, err))
@@ -76,15 +79,16 @@ class LsfProxy(object):
         Add the provided list of members to an existing LSF group.
         '''
         cmd = 'bconf addmember usergroup=%s "GROUP_MEMBER=%s"' %(grpName, ' '.join(grpMembers))
+        self.logger.debug('addMembers command : %s ' % cmd)
         #has to use cmd as a String as grpMembers may contain whitespaces
         try:
-            proc = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
+            proc = Popen(cmd.encode('ascii'), stdout=PIPE, stderr=PIPE, shell=True)
             result = proc.communicate()
             rc = proc.wait() #0 is OK, 1 is error, result contains errmsg
             if rc == 0:
                 self.logger.info('Added member/s to lsf group(%s)' % grpName)
             else:                
-                raise ValueError(result)
+                raise ValueError(result[1])
             
         except (OSError, ValueError), err:
             self.logger.error('Error adding member/s to LSF Group(%s): %s' % (grpName, err))

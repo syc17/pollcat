@@ -22,11 +22,13 @@ class Plugin(object):
         self.config = config
         self.logger = logger
         # merge scarf config with main pollcat config
-        self.config.read('plugins/scarf/scarf.config')        
+        self.config.read('plugins/scarf/scarf.config')
         self.destination = self.config.get('scarf','DATA_DESTINATION')        
         self.source = self.config.get('scarf','DATA_SOURCE')        
         self.dlsDefaultGroup = self.config.get('scarf','OS_DLS_GRP')     # os group for user
-        self.dlsDefaultUser = self.config.get('scarf','OS_DLS_DEFUSER') # both for os group and os user        
+        self.dlsDefaultUser = self.config.get('scarf','OS_DLS_DEFUSER') # both for os group and os user
+        self.lsfGrpPrefix = self.config.get('scarf','LSF_GRP_PREFIX') #lsf grp pattern <LSF_GRP_PREFIX><icat visitId>, e.g. diag_mt8618-8   
+        self.lsfParentGroup = self.config.get('scarf','LSF_PARENT_GRP') #default parent group: diamond     
          
         self.numFilesCopied = 0
         # common variable lists
@@ -50,6 +52,7 @@ class Plugin(object):
         
         #1Aug16 updated to handle request user first, if error here, just abort, the exceptions are passed up to pollcat
         #create scarf account for requester if not exist
+        #DLS has no public data, only users associated with the visitId can access the file
         self.requester['fedid'] = self.request['userName']
         if self.requester['fedid'] is None:
             raise ValueError('Requester has no fedid!  Cannot proceed')        
@@ -61,10 +64,9 @@ class Plugin(object):
         if uid is None:
             self.requester['uid'] = self.proxy.addUser(self.requester['fedid'])
         else:
-            self.requeser['uid'] = uid    
+            self.requester['uid'] = uid    
         
-        #create linux account for requeser if not exist
-        #self.createPrimaryUser(self.requester['fedid'])
+        #create linux account for requester if not exist
         self.createPrimaryUser(self.requester['uid'])
         
         #process the request
@@ -133,15 +135,15 @@ class Plugin(object):
             #icat_grpMems = {user.name : self.getUid(user, visit_id) for user in uids} #fedid:uid
             
             #5Aug2016 OS a/s needs to use scarf uid as identifier
-            self.visitId_uids[vId] = icat_grpMems.values #visitId:uids
+            self.visitId_uids[vId] = [x for x in icat_grpMems.values() if x is not None] #visitId:uids
             
             ldap_grpName = vId.replace('-','_') #swap all - to _
             #check if this group exists in ldap, if yes, don't need to re-create it
             try:
                 if self.proxy.connected is False:
                     self.proxy.connect()            
-                ldap_grp_memUIDs = self.proxy.getGroup(ldap_grpName) # #Dict {dn:[uids]} could be None if group not found.
-                
+                ldap_grp_memUIDs = self.proxy.getGroup(ldap_grpName) #Dict {dn:[uids]} could be None if group not found, only 1 rec returned
+
                 if ldap_grp_memUIDs is None:
                     #create the group, can add grp members later
                     dn = self.proxy.addGroup(ldap_grpName) #gidNum is an int
@@ -149,12 +151,13 @@ class Plugin(object):
                     self.proxy.addGroupMembers(dn, [x for x in icat_grpMems.values() if x is not None])                    
                 
                 else: # check if we need to add uids to the ldap group, we do no remove existing ldap grp members!!!
-                    uidsToAdd = list(set([x for x in icat_grpMems.values() if x is not None])).difference(ldap_grp_memUIDs.values()) #empty list returned if all included
+                    uidsToAdd = list(set([x for x in icat_grpMems.values() if x is not None]).difference(ldap_grp_memUIDs.values()[0]))  #empty list returned if all included                    
                     if uidsToAdd:   #if list is not empty
                         self.proxy.addGroupMembers(ldap_grp_memUIDs.key()[0], uidsToAdd)                        
                     else:
                         self.logger.debug('No new members to add to ldap group(%s)...' %ldap_grpName)                        
-                 
+                
+                self.logger.debug('About to process lsf accounts....') 
                 #check if LSF group exists and get a list of the existing members, lsf group name = 'diag_' + ldap group cn, add scarf uids as required
                 lsf_grpName = self.lsfGrpPrefix + ldap_grpName # e.g. diag_mt8618_8
                 self.logger.debug('About to process lsf group(%s)' % lsf_grpName)
@@ -164,12 +167,12 @@ class Plugin(object):
                 if lsf_grpMems is None:
                     lsfClient.addGroup(lsf_grpName, [x for x in icat_grpMems.values() if x is not None])
                     #now add to default parent group
-                    lsfClient.addMember(self.lsfParentGroup, lsf_grpName) 
+                    lsfClient.addMembers(self.lsfParentGroup, [lsf_grpName]) 
                 else:
-                    #group exists
-                    memsToAdd = list(set([x for x in icat_grpMems.values() if x is not None])).difference(lsf_grpMems) #empty list returned if all included
+                    #group exists                                     
+                    memsToAdd = list(set([x for x in icat_grpMems.values() if x is not None]).difference(lsf_grpMems)) #empty list returned if all included
                     if memsToAdd:
-                        lsfClient.addMembers(lsf_grpName, memsToAdd)                    
+                        lsfClient.addMembers(lsf_grpName, memsToAdd)
                     else:
                         self.logger.debug('No new members to add to lsf group(%s)...' % lsf_grpName)
                         
@@ -182,7 +185,7 @@ class Plugin(object):
             
         #we are done with LDAP now
         self.proxy.disconnect() 
-                
+        self.logger.debug('about to create the OS group/uids and copy files.....')        
         #create the OS group/uids and copy files
         for visitGroup, uids in self.visitId_uids.iteritems():
             if(visitGroup in self.skippedVisitIds):

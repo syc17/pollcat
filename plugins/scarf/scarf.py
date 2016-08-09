@@ -67,7 +67,7 @@ class Plugin(object):
             self.requester['uid'] = uid    
         
         #create linux account for requester if not exist
-        self.createPrimaryUser(self.requester['uid'])
+        #self.createPrimaryUser(self.requester['uid'])
         
         #process the request
         for dfId in self.datafileIds:  #dfId is an int and = icat.datafile.id  
@@ -193,6 +193,7 @@ class Plugin(object):
                 continue                     
             group = visitGroup.replace('-','_') #swap all - to _            
             
+            '''Derek said we don't have to create local users and groups
             try:
                 self.addGroup(group)
             except OSError, err:    #no point in copying files if can't create the OS Group     
@@ -210,6 +211,7 @@ class Plugin(object):
                     continue   
                 
             self.logger.debug('After creating uids, about to go through visit ids and copy files....') 
+            '''
             #Now copy the files and set file permissions            
             # filter out the skipped files as they have no icat.location
             self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  

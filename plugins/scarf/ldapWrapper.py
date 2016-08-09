@@ -155,7 +155,7 @@ class LdapProxy(object):
             else:
                 #compile CN
                 baseNumPart = 10**(8-len(self.userPrefix))
-                cn = self.userPrefix + str(newUidNum % baseNumPart).zfill(8-len(self.userPrefix)) #e.g. fac00058
+                cn = self.userPrefix + str(int(newUidNum) % baseNumPart).zfill(8-len(self.userPrefix)) #e.g. fac00058
                 self.logger.debug('Compiled CN(%s) for user(%s)....' %(cn, fedid))
                 descs = self.scarfDescs # a list                
                 dn = 'cn=' + cn + ',' + baseUserDN 
@@ -168,7 +168,7 @@ class LdapProxy(object):
                     ('cn', [cn]),
                     ('sn', [cn]),
                     ('uid',[cn]),
-                    ('uidNumber', [str(newUidNum)]),
+                    ('uidNumber', [newUidNum]),
                     ('loginShell',['/bin/bash']),
                     ('gidNumber',[self.DLS_gid]),  #all dls user belong to this primary group
                     ('homeDirectory',[homeDir]) 
@@ -212,7 +212,7 @@ class LdapProxy(object):
                 add_record = [
                      ('objectclass', ['top','posixGroup']),
                      ('cn', [grpName.encode('utf8')] ),
-                     ('gidNumber', [str(newGidNum)]),
+                     ('gidNumber', [newGidNum]),
                 ]                
                 self.connection.add_s(dn, add_record)
                 #return newGidNum
@@ -296,7 +296,7 @@ class LdapProxy(object):
                     #assuming that if currentId not exist, MOD_DELETE will throw NO_SUCH_ATTRIBUTE error and abort before add
                     mod_spec = [(ldap.MOD_DELETE, attribute, [currentId]),(ldap.MOD_ADD, attribute, [str(nextId)])]
                     self.connection.modify_s(dn, mod_spec)
-                    return nextId
+                    return currentId
                 except ldap.NO_SUCH_ATTRIBUTE, err:
                     self.logger.debug('%i try: Failed to update the %s for %s with the next value %i: %s' %(index,attribute,dn,nextId,err))
                     continue

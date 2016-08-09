@@ -66,9 +66,6 @@ class Plugin(object):
         else:
             self.requester['uid'] = uid    
         
-        #create linux account for requester if not exist
-        #self.createPrimaryUser(self.requester['uid'])
-        
         #process the request
         for dfId in self.datafileIds:  #dfId is an int and = icat.datafile.id  
             '''
@@ -191,27 +188,7 @@ class Plugin(object):
             if(visitGroup in self.skippedVisitIds):
                 self.logger.info("VisitID(%s) is in the skipped file, will skip creating local uids..." % visitGroup)
                 continue                     
-            group = visitGroup.replace('-','_') #swap all - to _            
-            
-            '''Derek said we don't have to create local users and groups
-            try:
-                self.addGroup(group)
-            except OSError, err:    #no point in copying files if can't create the OS Group     
-                self.skippedVisitIds.append(visitGroup)
-                self.logger.error('Error creating group for visitId(%s): %s. Skipping this...' % (group, err))
-                #do next visitGroup
-                continue
-            
-            for uid in uids:                
-                try:
-                    self.createuser(group, uid)                 
-                except OSError, err:   
-                    self.logger.error('Error creating user for %s: %s. Skipping this...' % (uid, err))
-                    #do next uid
-                    continue   
-                
-            self.logger.debug('After creating uids, about to go through visit ids and copy files....') 
-            '''
+            group = visitGroup.replace('-','_') #swap all - to _ 
             #Now copy the files and set file permissions            
             # filter out the skipped files as they have no icat.location
             self.copydata(group,[df for df in self.visitId_dfIds[visitGroup] if df not in self.skippedDFids])  
